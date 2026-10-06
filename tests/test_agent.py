@@ -74,5 +74,58 @@ def test_tool_schema():
     assert "parameters" in schema["calculate"]
 
 
+@pytest.mark.parametrize(
+    "expression, expected",
+    [
+        ("2 + 2", "4"),
+        ("10 / 4", "2.5"),
+        ("7 // 2", "3"),
+        ("7 % 3", "1"),
+        ("2 ** 10", "1024"),
+        ("-3 + +5", "2"),
+        ("2 + 3 * 4", "14"),
+        ("(2 + 3) * 4", "20"),
+        ("(3 + 4) * 2", "14"),
+        ("2 ** 3 ** 2", "512"),
+    ],
+)
+def test_calculate_arithmetic(expression, expected):
+    """Normal arithmetic, precedence and parentheses."""
+    assert tool_registry.get("calculate")(expression=expression) == expected
+
+
+@pytest.mark.parametrize(
+    "expression",
+    [
+        "1 / 0",
+        "1 // 0",
+        "5 % 0",
+        "__import__('os').system('echo hi')",
+        "__import__('os')",
+        "x + 1",
+        "'a' + 'b'",
+        "True + 1",
+        "(1).real",
+        "[1, 2][0]",
+        "9 ** 9 ** 9",
+        "2 ** 101",
+        "((9 ** 100) ** 100) ** 100",
+        "2 +",
+        "",
+    ],
+)
+def test_calculate_rejects_bad_input(expression):
+    """Unsafe, unsupported or invalid input returns an Error string, never raises."""
+    result = tool_registry.get("calculate")(expression=expression)
+    assert result.startswith("Error:")
+
+
+def test_calculate_schema_describes_expression():
+    """The expression parameter is documented for the LLM."""
+    schema = tool_registry.get_schema()["calculate"]
+    assert "arithmetic" in schema["description"].lower()
+    assert schema["parameters"]["properties"]["expression"]["description"]
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

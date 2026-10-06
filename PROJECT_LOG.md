@@ -4,6 +4,34 @@ Running log for continuity across sessions. Newest entries at the top. See `CLAU
 
 ---
 
+## 2026-10-06 — Subagents, lint cleanup, safe `calculate`, multi-step tool loop
+
+**Project subagents:** added four in `.claude/agents/` — `quality-check` (haiku, read-only), `metric-builder`, `tool-builder`, `session-logger` (sonnet). Committed as 78a74b5.
+
+**Lint cleanup (a2d6575):** ran black + `ruff --fix` across `src`, `tests`, `examples`. The installed ruff enables a wider default rule set than plain E/F (I, UP, N, BLE, RUF...) with only `line-length` set in `pyproject.toml`. Added a per-file-ignore for N999 on the numbered `examples/*` scripts.
+
+**Safe `calculate`:** `src/agenteval/agent/tools.py` no longer uses bare `eval`; it walks the AST and allows only numbers, unary +/-, `+ - * / // % **`. Exponent capped at 100 plus a bit-length cap for chained powers. Done by the tool-builder agent; tests added in `tests/test_agent.py`.
+
+**Multi-step agent (roadmap item done):**
+- `src/agenteval/agent/loop.py` — `create_tool_node`, `create_router`, `build_tool_agent(llm_node, registry, max_steps=10)` wiring llm -> (tools -> llm)* -> END.
+- `src/agenteval/agent/llm.py` — `create_llm_node(model, tools=None)` binds the registry via `bind_tools` (OpenAI function format from `get_schema()`). Assistant messages are plain dicts with optional `tool_calls` `[{id, name, args}]`; the task is always prepended as a user message (it is not stored in `messages`). Tool results are `{"role": "tool", "tool_call_id", "content"}` dicts, which LangChain's `convert_to_messages` accepts, so `AgentState` stays plain dicts.
+- `src/agenteval/agent/graph.py` — `AgentGraph` gained a `recursion_limit` attribute (default 25) passed to LangGraph invoke; `build_tool_agent` sets it to `2*max_steps+5` so our cap fires before `GraphRecursionError`.
+- Error semantics: unknown tool / bad args go into `errors` (so `success_rate` drops) but the error text is fed back to the LLM and the loop continues. Tool-returned "Error: ..." strings (e.g. division by zero) are not agent errors. `current_step` counts LLM calls only. The `max_steps` cap is enforced by a `stop` node that appends an error. `EvalCase.max_steps` only affects `step_efficiency` scoring; the hard cap is the graph's `max_steps`.
+- `tests/test_loop.py` — scripted mock LLM node, plus a `FakeChatGroq` monkeypatched into `llm.py` to test the real `llm_node` without a key. **47 tests pass** total.
+- `examples/01_simple_agent.py` now also runs the tool loop when `GROQ_API_KEY` is set.
+
+**Problems hit:**
+- Agent files created mid-session were not loadable by name until Claude Code restarts; worked around by running them via a general-purpose agent told to read the `.md` file.
+- The wider-than-expected ruff default rule set produced extra findings in the lint pass (see above).
+
+**Not done / next steps:**
+1. Set `GROQ_API_KEY` and run example 01 live. Untested risk: Groq/llama may emit malformed tool calls, in which case `langchain_groq` raises.
+2. File-based (JSON/YAML) `EvalCase` suites / CLI.
+3. LLM-as-judge and latency/cost metrics.
+4. FastAPI layer.
+
+---
+
 ## 2026-10-02 — Dependencies confirmed, evaluation layer built
 
 **Dependencies:** ran `pip install -r requirements.txt` into the existing `venv/`. Everything was already satisfied — no fresh installs happened. `GROQ_API_KEY` setup was explicitly postponed by request, so `examples/01_simple_agent.py`'s live-LLM branch stays unexercised for now.

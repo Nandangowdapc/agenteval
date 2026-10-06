@@ -14,6 +14,7 @@ from langgraph.graph import END
 
 from src.agenteval.agent.graph import AgentGraph
 from src.agenteval.agent.llm import create_llm_node
+from src.agenteval.agent.loop import build_tool_agent
 from src.agenteval.agent.state import create_initial_state
 from src.agenteval.agent.tools import tool_registry
 
@@ -70,6 +71,18 @@ def simple_agent_example():
         graph.add_edge("llm", END)
         final_state = graph.run(task)
         print(f"   Response: {final_state['messages'][-1]['content']}")
+
+        # Same model, now allowed to call tools: llm -> tools -> llm ... -> END
+        loop_task = "What is 17 * 23 + 4? Use the calculate tool."
+        print(f"\n🔁 Tool-calling loop: {loop_task}")
+        agent = build_tool_agent(create_llm_node(tools=tool_registry))
+        final_state = agent.run(loop_task)
+        for call, result in zip(
+            final_state["tool_calls"], final_state["tool_results"], strict=False
+        ):
+            print(f"   🔧 {call['name']}({call['args']}) -> {result['output']}")
+        print(f"   Response: {final_state['messages'][-1]['content']}")
+        print(f"   LLM steps: {final_state['current_step']}")
 
     print("=" * 60)
 

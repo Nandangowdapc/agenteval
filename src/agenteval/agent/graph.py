@@ -14,6 +14,8 @@ class AgentGraph:
         self.name = name
         self.graph = StateGraph(AgentState)
         self._nodes = {}
+        # LangGraph's own cap on supersteps per run (its default is 25)
+        self.recursion_limit = 25
 
     def add_node(self, name: str, func: Callable[[AgentState], dict]):
         """Add a node to the graph."""
@@ -40,5 +42,7 @@ class AgentGraph:
         """Run the agent on a task."""
         runnable = self.compile()
         initial_state = create_initial_state(task)
-        final_state = runnable.invoke(initial_state)
+        final_state = runnable.invoke(
+            initial_state, {"recursion_limit": self.recursion_limit}
+        )
         return final_state
