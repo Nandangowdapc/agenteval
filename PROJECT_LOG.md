@@ -24,6 +24,10 @@ Running log for continuity across sessions. Newest entries at the top. See `CLAU
 - Agent files created mid-session were not loadable by name until Claude Code restarts; worked around by running them via a general-purpose agent told to read the `.md` file.
 - The wider-than-expected ruff default rule set produced extra findings in the lint pass (see above).
 
+**Published to GitHub:** renamed local `master` → `main` and created the public repo https://github.com/Nandangowdapc/agenteval (`origin`, tracking `origin/main`) via `gh repo create --source=. --push`. `.env` and `venv/` are not tracked.
+
+**Paused here.** To resume: restart Claude Code so the `.claude/agents/` subagents load by name (check with `/agents`), then add `GROQ_API_KEY` to `.env` and run `examples/01_simple_agent.py` live.
+
 **Not done / next steps:**
 1. Set `GROQ_API_KEY` and run example 01 live. Untested risk: Groq/llama may emit malformed tool calls, in which case `langchain_groq` raises.
 2. File-based (JSON/YAML) `EvalCase` suites / CLI.
