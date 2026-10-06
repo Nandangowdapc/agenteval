@@ -5,13 +5,13 @@ Uses a mock reasoning node so this runs without a GROQ_API_KEY. Swap
 evaluate the real Groq-backed agent instead.
 """
 
-import sys
 import os
+import sys
 
 if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
     sys.stdout.reconfigure(encoding="utf-8")
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from langgraph.graph import END
 
@@ -40,9 +40,15 @@ def evaluate_agent_example():
     graph.add_edge("llm", END)
 
     cases = [
-        EvalCase(task="What is 2 + 2?", expected_output="4", expected_tools=["calculate"]),
-        EvalCase(task="What is 10 + 5?", expected_output="15", expected_tools=["calculate"]),
-        EvalCase(task="What is 3 + 3?", expected_output="7", expected_tools=["calculate"]),  # wrong on purpose
+        EvalCase(
+            task="What is 2 + 2?", expected_output="4", expected_tools=["calculate"]
+        ),
+        EvalCase(
+            task="What is 10 + 5?", expected_output="15", expected_tools=["calculate"]
+        ),
+        EvalCase(
+            task="What is 3 + 3?", expected_output="7", expected_tools=["calculate"]
+        ),  # wrong on purpose
     ]
 
     report = Evaluator(graph).evaluate(cases)

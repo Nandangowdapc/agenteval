@@ -3,9 +3,9 @@
 from dataclasses import dataclass, field
 from statistics import mean
 
-from . import metrics
 from ..agent.graph import AgentGraph
 from ..agent.state import AgentState
+from . import metrics
 
 
 @dataclass
@@ -45,7 +45,9 @@ class EvalReport:
 
     def mean_score(self, metric_name: str) -> float:
         """Mean of a specific metric across cases that recorded it."""
-        values = [r.scores[metric_name] for r in self.results if metric_name in r.scores]
+        values = [
+            r.scores[metric_name] for r in self.results if metric_name in r.scores
+        ]
         return mean(values) if values else 0.0
 
     def summary(self) -> dict[str, float]:
@@ -68,9 +70,15 @@ class Evaluator:
         scores: dict[str, float] = {}
 
         if case.expected_output is not None:
-            output = final_state["messages"][-1]["content"] if final_state["messages"] else ""
+            output = (
+                final_state["messages"][-1]["content"]
+                if final_state["messages"]
+                else ""
+            )
             scores["exact_match"] = metrics.exact_match(output, case.expected_output)
-            scores["contains_match"] = metrics.contains_match(output, case.expected_output)
+            scores["contains_match"] = metrics.contains_match(
+                output, case.expected_output
+            )
 
         if case.expected_tools:
             called_tools = [tc["name"] for tc in final_state["tool_calls"]]

@@ -1,11 +1,12 @@
 """Tool registry and definitions."""
 
-from typing import Callable, Any, Optional
+from collections.abc import Callable
+from typing import Any
 
 
 class Tool:
     """Definition of a tool the agent can use."""
-    
+
     def __init__(
         self,
         name: str,
@@ -17,7 +18,7 @@ class Tool:
         self.func = func
         self.description = description
         self.parameters = parameters
-    
+
     def __call__(self, **kwargs):
         """Execute the tool."""
         return self.func(**kwargs)
@@ -25,22 +26,22 @@ class Tool:
 
 class ToolRegistry:
     """Registry of available tools."""
-    
+
     def __init__(self):
         self._tools = {}
-    
+
     def register(self, tool: Tool) -> None:
         """Register a tool."""
         self._tools[tool.name] = tool
-    
-    def get(self, name: str) -> Optional[Tool]:
+
+    def get(self, name: str) -> Tool | None:
         """Get a tool by name."""
         return self._tools.get(name)
-    
+
     def list_tools(self) -> list[str]:
         """List all available tools."""
         return list(self._tools.keys())
-    
+
     def get_schema(self) -> dict:
         """Get schema of all tools (for LLM)."""
         return {
@@ -58,7 +59,7 @@ def calculate(expression: str) -> str:
     try:
         result = eval(expression)
         return str(result)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — tools report errors to the LLM, never raise
         return f"Error: {e}"
 
 
@@ -76,9 +77,7 @@ tool_registry.register(
         description="Execute a mathematical expression",
         parameters={
             "type": "object",
-            "properties": {
-                "expression": {"type": "string"}
-            },
+            "properties": {"expression": {"type": "string"}},
             "required": ["expression"],
         },
     )
@@ -90,9 +89,7 @@ tool_registry.register(
         description="Search the web for information",
         parameters={
             "type": "object",
-            "properties": {
-                "query": {"type": "string"}
-            },
+            "properties": {"query": {"type": "string"}},
             "required": ["query"],
         },
     )

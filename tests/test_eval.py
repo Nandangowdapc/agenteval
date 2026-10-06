@@ -1,16 +1,15 @@
 """Tests for the evaluation framework."""
 
-import sys
 import os
+import sys
 
 # Add src to path for imports
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from langgraph.graph import END
 
 from src.agenteval.agent.graph import AgentGraph
-from src.agenteval.eval import metrics
-from src.agenteval.eval import EvalCase, Evaluator
+from src.agenteval.eval import EvalCase, Evaluator, metrics
 
 
 def mock_llm_node(state):
