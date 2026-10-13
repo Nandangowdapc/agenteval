@@ -20,6 +20,9 @@ class AgentState(TypedDict):
     # Tool execution results
     tool_results: Annotated[list[dict], add]
 
+    # Total tokens per LLM call (append-only)
+    token_usage: Annotated[list[int], add]
+
     # Current reasoning step
     reasoning: str
 
@@ -42,6 +45,7 @@ def create_initial_state(task: str) -> AgentState:
         "messages": [],
         "tool_calls": [],
         "tool_results": [],
+        "token_usage": [],
         "reasoning": "",
         "current_step": 0,
         "task": task,

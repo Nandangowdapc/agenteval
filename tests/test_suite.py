@@ -36,6 +36,14 @@ def test_defaults_applied(tmp_path):
     assert c.expected_output is None and c.expected_tools == [] and c.max_steps == 10
 
 
+def test_max_tokens_loaded(tmp_path):
+    cases = load_suite(
+        write(tmp_path, "s.json", [{"task": "a", "max_tokens": 500}, {"task": "b"}])
+    )
+    assert cases[0].max_tokens == 500
+    assert cases[1].max_tokens is None
+
+
 def test_load_yaml(tmp_path):
     pytest.importorskip("yaml")
     text = "cases:\n  - task: What is 2 + 2?\n    expected_tools: [calculate]\n"
@@ -50,6 +58,9 @@ def test_load_yaml(tmp_path):
         ([{"expected_output": "x"}], "case #1: 'task'"),
         ([{"task": "a"}, {"task": "b", "max_steps": 0}], "case #2: 'max_steps'"),
         ([{"task": "a", "max_steps": True}], "'max_steps'"),
+        ([{"task": "a", "max_tokens": 0}], "'max_tokens'"),
+        ([{"task": "a", "max_tokens": True}], "'max_tokens'"),
+        ([{"task": "a", "max_tokens": 1.5}], "'max_tokens'"),
         ([{"task": "a", "expected_tools": "calculate"}], "'expected_tools'"),
         ([{"task": "a", "bogus": 1}], "unknown field"),
         (["not an object"], "must be an object"),

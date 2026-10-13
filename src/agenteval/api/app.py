@@ -81,10 +81,14 @@ def evaluate(
                 scores=r.scores,
                 overall=r.overall,
                 steps=state["current_step"],
+                tokens_used=r.tokens_used,
                 tool_calls=[tc["name"] for tc in state["tool_calls"]],
                 errors=list(state["errors"]),
             )
         )
     return EvaluateResponse(
-        results=results, summary=report.summary(), overall=report.overall
+        results=results,
+        summary=report.summary(),
+        overall=report.overall,
+        total_tokens=report.total_tokens,
     )

@@ -8,6 +8,7 @@ class EvalCaseIn(BaseModel):
     expected_output: str | None = None
     expected_tools: list[str] = Field(default_factory=list)
     max_steps: int = Field(default=10, ge=1)
+    max_tokens: int | None = Field(default=None, ge=1)
 
 
 class EvaluateRequest(BaseModel):
@@ -21,6 +22,7 @@ class CaseResultOut(BaseModel):
     scores: dict[str, float]
     overall: float
     steps: int
+    tokens_used: int
     tool_calls: list[str]
     errors: list[str]
 
@@ -29,6 +31,7 @@ class EvaluateResponse(BaseModel):
     results: list[CaseResultOut]
     summary: dict[str, float]
     overall: float
+    total_tokens: int = 0
 
 
 class ToolOut(BaseModel):

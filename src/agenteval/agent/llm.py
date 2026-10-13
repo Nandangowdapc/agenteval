@@ -13,6 +13,15 @@ load_dotenv()
 DEFAULT_MODEL = "llama-3.3-70b-versatile"
 
 
+def _total_tokens(response) -> list[int]:
+    """Total tokens for one response as a 0/1-item list; empty if unreported."""
+    usage = getattr(response, "usage_metadata", None)
+    total = usage.get("total_tokens") if isinstance(usage, dict) else None
+    if isinstance(total, bool) or not isinstance(total, int):
+        return []
+    return [total]
+
+
 def create_llm_node(model: str = DEFAULT_MODEL, tools: ToolRegistry | None = None):
     """Build a node function that calls Groq for one reasoning step.
 
@@ -50,6 +59,7 @@ def create_llm_node(model: str = DEFAULT_MODEL, tools: ToolRegistry | None = Non
         return {
             "messages": [message],
             "tool_calls": calls,
+            "token_usage": _total_tokens(response),
             "current_step": state["current_step"] + 1,
         }
 

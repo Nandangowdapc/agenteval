@@ -4,6 +4,12 @@ Running log for continuity across sessions. Newest entries at the top. See `CLAU
 
 ---
 
+## 2026-10-14 (later) — token_efficiency wired into Evaluator
+
+Added append-only `AgentState.token_usage` (ints, total tokens per LLM call); `llm.py` records `response.usage_metadata["total_tokens"]` (nothing if missing/None). `EvalCase.max_tokens: int | None = None` adds a `token_efficiency` score from `sum(token_usage)`; `EvalResult.tokens_used`, `EvalReport.total_tokens` / `mean_tokens`. `max_tokens` accepted in suite files (positive int, bool rejected) and the API (`EvalCaseIn.max_tokens`; results include `tokens_used`, response `total_tokens`). Unset `max_tokens` leaves behavior unchanged. Mock nodes in tests return `token_usage`; the Groq node is tested with a fake `ChatGroq`. **83 tests pass**, black/ruff clean. Uncommitted. Still no dollar-cost metric; never run with a real Groq key.
+
+---
+
 ## 2026-10-14 — FastAPI layer, file-based suites + CLI, latency/token metrics
 
 **FastAPI layer:** `src/agenteval/api/` (`app.py`, `models.py`) with `GET /health`, `GET /tools`, `POST /evaluate`. The LLM node comes from an injectable dependency `get_llm_node_factory`, so tests override it with a mock; without `GROQ_API_KEY` `/evaluate` returns 503. `tests/test_api.py` (6 tests). Never run live under uvicorn.
@@ -18,7 +24,7 @@ Running log for continuity across sessions. Newest entries at the top. See `CLAU
 
 **Not done / next steps:**
 1. Set `GROQ_API_KEY`; run example 01, the suite CLI with `--node groq`, and the API under uvicorn live.
-2. Wire `token_efficiency` (capture `usage_metadata` in `llm.py` / `AgentState`); optional cost metric.
+2. Optional dollar-cost metric (token_efficiency is now wired).
 3. LLM-as-judge scoring.
 4. Commit this work.
 

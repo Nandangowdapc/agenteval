@@ -22,6 +22,7 @@ def scripted_factory(script):
             return {
                 "messages": [message],
                 "tool_calls": calls,
+                "token_usage": [10],
                 "current_step": state["current_step"] + 1,
             }
 
@@ -97,3 +98,29 @@ def test_evaluate_without_key_returns_503(client, monkeypatch):
     monkeypatch.delenv("GROQ_API_KEY", raising=False)
     r = client.post("/evaluate", json={"cases": [{"task": "x"}]})
     assert r.status_code == 503
+
+
+def test_evaluate_tokens(client):
+    call = {"id": "c1", "name": "calculate", "args": {"expression": "2 + 2"}}
+    use_script([("", [call]), ("4", [])])
+    r = client.post(
+        "/evaluate",
+        json={"cases": [{"task": "What is 2 + 2?", "max_tokens": 40}]},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["results"][0]["tokens_used"] == 20
+    assert body["results"][0]["scores"]["token_efficiency"] == 0.5
+    assert body["total_tokens"] == 20
+
+
+def test_evaluate_without_max_tokens(client):
+    use_script([("hi", [])])
+    body = client.post("/evaluate", json={"cases": [{"task": "a"}]}).json()
+    assert "token_efficiency" not in body["results"][0]["scores"]
+    assert body["results"][0]["tokens_used"] == 10
+
+
+def test_evaluate_rejects_bad_max_tokens(client):
+    r = client.post("/evaluate", json={"cases": [{"task": "a", "max_tokens": 0}]})
+    assert r.status_code == 422

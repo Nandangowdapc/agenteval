@@ -23,7 +23,7 @@ from typing import Any
 
 from .evaluator import EvalCase, EvalReport, Evaluator
 
-_CASE_FIELDS = {"task", "expected_output", "expected_tools", "max_steps"}
+_CASE_FIELDS = {"task", "expected_output", "expected_tools", "max_steps", "max_tokens"}
 
 
 class SuiteError(ValueError):
@@ -86,6 +86,11 @@ def _build_case(raw: Any, where: str) -> EvalCase:
         if isinstance(steps, bool) or not isinstance(steps, int) or steps < 1:
             raise SuiteError(f"{where}: 'max_steps' must be a positive integer")
         kwargs["max_steps"] = steps
+    if raw.get("max_tokens") is not None:
+        tokens = raw["max_tokens"]
+        if isinstance(tokens, bool) or not isinstance(tokens, int) or tokens < 1:
+            raise SuiteError(f"{where}: 'max_tokens' must be a positive integer")
+        kwargs["max_tokens"] = tokens
     return EvalCase(**kwargs)
 
 

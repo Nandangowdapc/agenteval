@@ -9,7 +9,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from langgraph.graph import END
 
 from src.agenteval.agent.graph import AgentGraph
+from src.agenteval.agent.state import create_initial_state
 from src.agenteval.eval import EvalCase, Evaluator, metrics
+from src.agenteval.eval.evaluator import EvalReport
 
 
 def mock_llm_node(state):
@@ -17,6 +19,7 @@ def mock_llm_node(state):
     return {
         "messages": [{"role": "assistant", "content": "4"}],
         "tool_calls": [{"name": "calculate"}],
+        "token_usage": [100],
         "current_step": state["current_step"] + 1,
     }
 
@@ -144,3 +147,73 @@ def test_report_elapsed_aggregates():
         r.elapsed_seconds for r in report.results
     )
     assert report.mean_elapsed_seconds == report.total_elapsed_seconds / 2
+
+
+def test_evaluate_case_tokens():
+    evaluator = Evaluator(build_mock_graph())
+
+    # No budget -> no token score, but usage is still recorded.
+    plain = evaluator.evaluate_case(EvalCase(task="What is 2 + 2?"))
+    assert "token_efficiency" not in plain.scores
+    assert plain.tokens_used == 100
+
+    half = evaluator.evaluate_case(EvalCase(task="x", max_tokens=200))
+    assert half.scores["token_efficiency"] == 0.5
+    over = evaluator.evaluate_case(EvalCase(task="x", max_tokens=50))
+    assert over.scores["token_efficiency"] == 0.0
+
+
+def test_evaluate_case_tokens_missing_usage():
+    graph = AgentGraph(name="no-usage")
+    graph.add_node(
+        "llm",
+        lambda s: {
+            "messages": [{"role": "assistant", "content": "hi"}],
+            "current_step": s["current_step"] + 1,
+        },
+    )
+    graph.set_entry_point("llm")
+    graph.add_edge("llm", END)
+    result = Evaluator(graph).evaluate_case(EvalCase(task="x", max_tokens=100))
+    assert result.tokens_used == 0
+    assert result.scores["token_efficiency"] == 1.0
+
+
+def test_report_token_aggregates():
+    report = Evaluator(build_mock_graph()).evaluate(
+        [EvalCase(task="a"), EvalCase(task="b")]
+    )
+    assert report.total_tokens == 200
+    assert report.mean_tokens == 100.0
+    assert EvalReport(results=[]).mean_tokens == 0.0
+
+
+def test_llm_node_records_token_usage(monkeypatch):
+    from src.agenteval.agent import llm as llm_module
+
+    class FakeResponse:
+        content = "ok"
+
+        def __init__(self, usage):
+            self.tool_calls = []
+            self.usage_metadata = usage
+
+    class FakeChat:
+        usage: object = None
+
+        def __init__(self, **kwargs):
+            pass
+
+        def invoke(self, history):
+            return FakeResponse(FakeChat.usage)
+
+    monkeypatch.setenv("GROQ_API_KEY", "test")
+    monkeypatch.setattr(llm_module, "ChatGroq", FakeChat)
+    node = llm_module.create_llm_node()
+    state = create_initial_state("hi")
+
+    FakeChat.usage = {"total_tokens": 42}
+    assert node(state)["token_usage"] == [42]
+    for missing in (None, {}, {"total_tokens": None}):
+        FakeChat.usage = missing
+        assert node(state)["token_usage"] == []

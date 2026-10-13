@@ -18,6 +18,7 @@ class EvalCase:
     expected_tools: list[str] = field(default_factory=list)
     max_steps: int = 10
     max_latency_seconds: float | None = None
+    max_tokens: int | None = None
 
 
 @dataclass
@@ -28,6 +29,7 @@ class EvalResult:
     final_state: AgentState
     scores: dict[str, float]
     elapsed_seconds: float = 0.0
+    tokens_used: int = 0
 
     @property
     def overall(self) -> float:
@@ -55,6 +57,16 @@ class EvalReport:
     def mean_elapsed_seconds(self) -> float:
         """Mean wall-clock seconds per case."""
         return mean(r.elapsed_seconds for r in self.results) if self.results else 0.0
+
+    @property
+    def total_tokens(self) -> int:
+        """Total tokens used across all cases."""
+        return sum(r.tokens_used for r in self.results)
+
+    @property
+    def mean_tokens(self) -> float:
+        """Mean tokens used per case."""
+        return mean(r.tokens_used for r in self.results) if self.results else 0.0
 
     def mean_score(self, metric_name: str) -> float:
         """Mean of a specific metric across cases that recorded it."""
@@ -111,11 +123,18 @@ class Evaluator:
                 elapsed, case.max_latency_seconds
             )
 
+        tokens_used = sum(final_state.get("token_usage", []))
+        if case.max_tokens is not None:
+            scores["token_efficiency"] = metrics.token_efficiency(
+                tokens_used, case.max_tokens
+            )
+
         return EvalResult(
             case=case,
             final_state=final_state,
             scores=scores,
             elapsed_seconds=elapsed,
+            tokens_used=tokens_used,
         )
 
     def evaluate(self, cases: list[EvalCase]) -> EvalReport:
