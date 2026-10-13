@@ -1,0 +1,8 @@
+{
+  "name": "arithmetic",
+  "cases": [
+    {"task": "What is 2 + 2?", "expected_output": "4", "expected_tools": ["calculate"], "max_steps": 5},
+    {"task": "What is 10 + 5?", "expected_output": "15", "expected_tools": ["calculate"]},
+    {"task": "What is 3 + 3?", "expected_output": "7", "expected_tools": ["calculate"], "max_steps": 3}
+  ]
+}

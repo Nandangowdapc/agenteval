@@ -1,5 +1,6 @@
 """Run agent graphs against evaluation cases and score the results."""
 
+import time
 from dataclasses import dataclass, field
 from statistics import mean
 
@@ -16,6 +17,7 @@ class EvalCase:
     expected_output: str | None = None
     expected_tools: list[str] = field(default_factory=list)
     max_steps: int = 10
+    max_latency_seconds: float | None = None
 
 
 @dataclass
@@ -25,6 +27,7 @@ class EvalResult:
     case: EvalCase
     final_state: AgentState
     scores: dict[str, float]
+    elapsed_seconds: float = 0.0
 
     @property
     def overall(self) -> float:
@@ -42,6 +45,16 @@ class EvalReport:
     def overall(self) -> float:
         """Mean overall score across all cases."""
         return mean(r.overall for r in self.results) if self.results else 0.0
+
+    @property
+    def total_elapsed_seconds(self) -> float:
+        """Total wall-clock seconds spent running all cases."""
+        return sum(r.elapsed_seconds for r in self.results)
+
+    @property
+    def mean_elapsed_seconds(self) -> float:
+        """Mean wall-clock seconds per case."""
+        return mean(r.elapsed_seconds for r in self.results) if self.results else 0.0
 
     def mean_score(self, metric_name: str) -> float:
         """Mean of a specific metric across cases that recorded it."""
@@ -66,7 +79,9 @@ class Evaluator:
 
     def evaluate_case(self, case: EvalCase) -> EvalResult:
         """Run the agent on one case and score the resulting state."""
+        start = time.perf_counter()
         final_state = self.graph.run(case.task)
+        elapsed = time.perf_counter() - start
         scores: dict[str, float] = {}
 
         if case.expected_output is not None:
@@ -91,7 +106,17 @@ class Evaluator:
         )
         scores["success_rate"] = metrics.success_rate(final_state["errors"])
 
-        return EvalResult(case=case, final_state=final_state, scores=scores)
+        if case.max_latency_seconds is not None:
+            scores["latency_score"] = metrics.latency_score(
+                elapsed, case.max_latency_seconds
+            )
+
+        return EvalResult(
+            case=case,
+            final_state=final_state,
+            scores=scores,
+            elapsed_seconds=elapsed,
+        )
 
     def evaluate(self, cases: list[EvalCase]) -> EvalReport:
         """Run the agent on every case and return an aggregated report."""

@@ -60,6 +60,24 @@ def test_success_rate():
     assert metrics.success_rate(["boom"]) == 0.0
 
 
+def test_latency_score():
+    assert metrics.latency_score(0.0, 2.0) == 1.0
+    assert metrics.latency_score(1.0, 2.0) == 0.5
+    assert metrics.latency_score(2.0, 2.0) == 0.0
+    assert metrics.latency_score(5.0, 2.0) == 0.0
+    assert metrics.latency_score(0.0, 0.0) == 1.0
+    assert metrics.latency_score(1.0, 0.0) == 0.0
+
+
+def test_token_efficiency():
+    assert metrics.token_efficiency(0, 100) == 1.0
+    assert metrics.token_efficiency(50, 100) == 0.5
+    assert metrics.token_efficiency(100, 100) == 0.0
+    assert metrics.token_efficiency(500, 100) == 0.0
+    assert metrics.token_efficiency(0, 0) == 1.0
+    assert metrics.token_efficiency(1, 0) == 0.0
+
+
 # --- evaluator ---------------------------------------------------------------
 
 
@@ -96,3 +114,33 @@ def test_evaluate_report_summary():
     summary = report.summary()
     assert "exact_match" in summary
     assert "overall" in summary
+
+
+def test_evaluate_case_latency():
+    evaluator = Evaluator(build_mock_graph())
+
+    # No budget -> no latency score, but timing is still recorded.
+    result = evaluator.evaluate_case(EvalCase(task="What is 2 + 2?"))
+    assert "latency_score" not in result.scores
+    assert result.elapsed_seconds >= 0.0
+
+    generous = evaluator.evaluate_case(
+        EvalCase(task="What is 2 + 2?", max_latency_seconds=60.0)
+    )
+    assert 0.9 < generous.scores["latency_score"] <= 1.0
+
+    # A zero budget can never be met by a run that takes measurable time.
+    tight = evaluator.evaluate_case(
+        EvalCase(task="What is 2 + 2?", max_latency_seconds=0.0)
+    )
+    assert tight.scores["latency_score"] == 0.0
+
+
+def test_report_elapsed_aggregates():
+    report = Evaluator(build_mock_graph()).evaluate(
+        [EvalCase(task="a"), EvalCase(task="b")]
+    )
+    assert report.total_elapsed_seconds == sum(
+        r.elapsed_seconds for r in report.results
+    )
+    assert report.mean_elapsed_seconds == report.total_elapsed_seconds / 2

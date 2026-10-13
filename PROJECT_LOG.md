@@ -4,6 +4,26 @@ Running log for continuity across sessions. Newest entries at the top. See `CLAU
 
 ---
 
+## 2026-10-14 — FastAPI layer, file-based suites + CLI, latency/token metrics
+
+**FastAPI layer:** `src/agenteval/api/` (`app.py`, `models.py`) with `GET /health`, `GET /tools`, `POST /evaluate`. The LLM node comes from an injectable dependency `get_llm_node_factory`, so tests override it with a mock; without `GROQ_API_KEY` `/evaluate` returns 503. `tests/test_api.py` (6 tests). Never run live under uvicorn.
+
+**File-based suites + CLI:** `src/agenteval/eval/suite.py` — `load_suite` (JSON/YAML), `SuiteError`, and a CLI `python -m agenteval.eval.suite <path> [--node mock|groq]` (needs `PYTHONPATH=src`). Sample suite `examples/suite_arithmetic.json`; `tests/test_suite.py` (15 tests).
+
+**New metrics:** `latency_score` and `token_efficiency` in `src/agenteval/eval/metrics.py`. `Evaluator` now times each run; added `EvalCase.max_latency_seconds`, `EvalResult.elapsed_seconds`, `EvalReport.total_elapsed_seconds` / `mean_elapsed_seconds`. `token_efficiency` is NOT wired into the Evaluator: it needs `AgentState`/`llm.py` to capture Groq `usage_metadata`. No dollar-cost metric. Tests in `tests/test_eval.py`.
+
+**State:** all uncommitted; black/ruff clean; **72 tests pass**.
+
+**Problems hit:** None.
+
+**Not done / next steps:**
+1. Set `GROQ_API_KEY`; run example 01, the suite CLI with `--node groq`, and the API under uvicorn live.
+2. Wire `token_efficiency` (capture `usage_metadata` in `llm.py` / `AgentState`); optional cost metric.
+3. LLM-as-judge scoring.
+4. Commit this work.
+
+---
+
 ## 2026-10-06 — Subagents, lint cleanup, safe `calculate`, multi-step tool loop
 
 **Project subagents:** added four in `.claude/agents/` — `quality-check` (haiku, read-only), `metric-builder`, `tool-builder`, `session-logger` (sonnet). Committed as 78a74b5.
