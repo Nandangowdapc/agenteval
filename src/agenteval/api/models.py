@@ -9,6 +9,7 @@ class EvalCaseIn(BaseModel):
     expected_tools: list[str] = Field(default_factory=list)
     max_steps: int = Field(default=10, ge=1)
     max_tokens: int | None = Field(default=None, ge=1)
+    judge_criteria: str | None = Field(default=None, min_length=1)
 
 
 class EvaluateRequest(BaseModel):

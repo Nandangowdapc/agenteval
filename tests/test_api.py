@@ -9,7 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from src.agenteval.agent.tools import tool_registry
-from src.agenteval.api.app import app, get_llm_node_factory
+from src.agenteval.api.app import app, get_judge_factory, get_llm_node_factory
 
 
 def scripted_factory(script):
@@ -124,3 +124,35 @@ def test_evaluate_without_max_tokens(client):
 def test_evaluate_rejects_bad_max_tokens(client):
     r = client.post("/evaluate", json={"cases": [{"task": "a", "max_tokens": 0}]})
     assert r.status_code == 422
+
+
+def test_evaluate_with_judge(client):
+    use_script([("4", [])])
+    app.dependency_overrides[get_judge_factory] = lambda: lambda: (lambda _: "8")
+    r = client.post(
+        "/evaluate",
+        json={"cases": [{"task": "2+2?", "judge_criteria": "answer is 4"}]},
+    )
+    assert r.status_code == 200
+    assert r.json()["results"][0]["scores"]["llm_judge"] == 0.8
+
+
+def test_judge_not_built_without_criteria(client):
+    use_script([("4", [])])
+
+    def boom():
+        raise AssertionError("judge factory should not be called")
+
+    app.dependency_overrides[get_judge_factory] = lambda: boom
+    r = client.post("/evaluate", json={"cases": [{"task": "2+2?"}]})
+    assert r.status_code == 200
+    assert "llm_judge" not in r.json()["results"][0]["scores"]
+
+
+def test_judge_criteria_without_key_returns_503(client, monkeypatch):
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    use_script([("4", [])])
+    r = client.post(
+        "/evaluate", json={"cases": [{"task": "x", "judge_criteria": "ok"}]}
+    )
+    assert r.status_code == 503

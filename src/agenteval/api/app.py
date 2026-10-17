@@ -15,6 +15,7 @@ from ..agent.loop import build_tool_agent
 from ..agent.state import AgentState
 from ..agent.tools import ToolRegistry, tool_registry
 from ..eval.evaluator import EvalCase, Evaluator
+from ..eval.judge import Judge
 from .models import (
     CaseResultOut,
     EvaluateRequest,
@@ -25,6 +26,7 @@ from .models import (
 
 LLMNode = Callable[[AgentState], dict]
 LLMNodeFactory = Callable[[ToolRegistry], LLMNode]
+JudgeFactory = Callable[[], Judge]
 
 app = FastAPI(title="AgentEval API", version="0.1.0")
 
@@ -46,6 +48,23 @@ def get_llm_node_factory() -> LLMNodeFactory:
     return groq_llm_node_factory
 
 
+def groq_judge_factory() -> Judge:
+    """Default judge factory: the real Groq judge, requires GROQ_API_KEY."""
+    from ..eval.judge import create_groq_judge
+
+    if not os.environ.get("GROQ_API_KEY"):
+        raise HTTPException(
+            status_code=503,
+            detail="GROQ_API_KEY is not set; cannot build the Groq judge.",
+        )
+    return create_groq_judge()
+
+
+def get_judge_factory() -> JudgeFactory:
+    """Dependency returning the judge factory (override in tests)."""
+    return groq_judge_factory
+
+
 @app.get("/health", response_model=HealthResponse)
 def health() -> HealthResponse:
     return HealthResponse(status="ok")
@@ -63,11 +82,14 @@ def list_tools() -> list[ToolOut]:
 def evaluate(
     request: EvaluateRequest,
     factory: Annotated[LLMNodeFactory, Depends(get_llm_node_factory)],
+    judge_factory: Annotated[JudgeFactory, Depends(get_judge_factory)],
 ) -> EvaluateResponse:
     graph = build_tool_agent(
         factory(tool_registry), tool_registry, max_steps=request.max_steps
     )
-    report = Evaluator(graph).evaluate(
+    # Only build a judge when some case asks for one, so plain runs never need it.
+    judge = judge_factory() if any(c.judge_criteria for c in request.cases) else None
+    report = Evaluator(graph, judge=judge).evaluate(
         [EvalCase(**case.model_dump()) for case in request.cases]
     )
     results = []

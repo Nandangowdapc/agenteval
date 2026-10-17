@@ -6,7 +6,7 @@ Running log for continuity across sessions. Newest entries at the top. See `CLAU
 
 ## 2026-10-17 — LLM-as-judge metric
 
-`src/agenteval/eval/judge.py`: `llm_judge`, `parse_score`, `create_groq_judge` (judge = any `str -> str` callable, so tests inject fakes). `EvalCase.judge_criteria`; `Evaluator(graph, judge=None)` adds an `llm_judge` score only when both are set. Wired into suite files (`judge_criteria`, non-empty string) and the suite CLI (`--judge none|groq`). README + CLAUDE.md updated. **89 tests pass**, black/ruff clean. Uncommitted. Not done: API `/evaluate` support, judge-bias mitigations, any live Groq run (still no key).
+`src/agenteval/eval/judge.py`: `llm_judge`, `parse_score`, `create_groq_judge` (judge = any `str -> str` callable, so tests inject fakes). `EvalCase.judge_criteria`; `Evaluator(graph, judge=None)` adds an `llm_judge` score only when both are set. Wired into suite files (`judge_criteria`, non-empty string) and the suite CLI (`--judge none|groq`). README + CLAUDE.md updated. **89 tests pass**, black/ruff clean. Uncommitted. Follow-up same day: `/evaluate` accepts `judge_criteria` via an injectable `get_judge_factory` dependency (judge built only when a case needs it; 503 without key); 92 tests. Not done: judge-bias mitigations, any live Groq run (still no key).
 
 ---
 
