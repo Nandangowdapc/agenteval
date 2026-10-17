@@ -7,6 +7,7 @@ from statistics import mean
 from ..agent.graph import AgentGraph
 from ..agent.state import AgentState
 from . import metrics
+from .judge import Judge, llm_judge
 
 
 @dataclass
@@ -19,6 +20,7 @@ class EvalCase:
     max_steps: int = 10
     max_latency_seconds: float | None = None
     max_tokens: int | None = None
+    judge_criteria: str | None = None
 
 
 @dataclass
@@ -86,8 +88,13 @@ class EvalReport:
 class Evaluator:
     """Runs an AgentGraph against a set of EvalCases and scores each run."""
 
-    def __init__(self, graph: AgentGraph):
+    def __init__(self, graph: AgentGraph, judge: Judge | None = None):
         self.graph = graph
+        self.judge = judge
+
+    @staticmethod
+    def _final_output(state: AgentState) -> str:
+        return state["messages"][-1]["content"] if state["messages"] else ""
 
     def evaluate_case(self, case: EvalCase) -> EvalResult:
         """Run the agent on one case and score the resulting state."""
@@ -127,6 +134,14 @@ class Evaluator:
         if case.max_tokens is not None:
             scores["token_efficiency"] = metrics.token_efficiency(
                 tokens_used, case.max_tokens
+            )
+
+        if self.judge is not None and case.judge_criteria is not None:
+            scores["llm_judge"] = llm_judge(
+                case.task,
+                self._final_output(final_state),
+                case.judge_criteria,
+                self.judge,
             )
 
         return EvalResult(

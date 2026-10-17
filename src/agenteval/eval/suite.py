@@ -23,7 +23,14 @@ from typing import Any
 
 from .evaluator import EvalCase, EvalReport, Evaluator
 
-_CASE_FIELDS = {"task", "expected_output", "expected_tools", "max_steps", "max_tokens"}
+_CASE_FIELDS = {
+    "task",
+    "expected_output",
+    "expected_tools",
+    "max_steps",
+    "max_tokens",
+    "judge_criteria",
+}
 
 
 class SuiteError(ValueError):
@@ -91,6 +98,11 @@ def _build_case(raw: Any, where: str) -> EvalCase:
         if isinstance(tokens, bool) or not isinstance(tokens, int) or tokens < 1:
             raise SuiteError(f"{where}: 'max_tokens' must be a positive integer")
         kwargs["max_tokens"] = tokens
+    if raw.get("judge_criteria") is not None:
+        criteria = raw["judge_criteria"]
+        if not isinstance(criteria, str) or not criteria.strip():
+            raise SuiteError(f"{where}: 'judge_criteria' must be a non-empty string")
+        kwargs["judge_criteria"] = criteria
     return EvalCase(**kwargs)
 
 
@@ -163,6 +175,12 @@ def main(argv: list[str] | None = None) -> int:
         default="mock",
         help="mock needs no API key; groq needs GROQ_API_KEY (default: mock)",
     )
+    parser.add_argument(
+        "--judge",
+        choices=["none", "groq"],
+        default="none",
+        help="groq scores cases with judge_criteria via an LLM; needs GROQ_API_KEY",
+    )
     args = parser.parse_args(argv)
 
     if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
@@ -172,7 +190,12 @@ def main(argv: list[str] | None = None) -> int:
     except SuiteError as exc:
         print(f"Suite error: {exc}", file=sys.stderr)
         return 2
-    report = Evaluator(build_graph(args.node)).evaluate(cases)
+    judge = None
+    if args.judge == "groq":
+        from .judge import create_groq_judge
+
+        judge = create_groq_judge()
+    report = Evaluator(build_graph(args.node), judge=judge).evaluate(cases)
     print(format_report(report))
     return 0
 

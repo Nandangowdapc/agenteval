@@ -217,3 +217,40 @@ def test_llm_node_records_token_usage(monkeypatch):
     for missing in (None, {}, {"total_tokens": None}):
         FakeChat.usage = missing
         assert node(state)["token_usage"] == []
+
+
+# --- llm judge -------------------------------------------------------------
+
+
+def test_parse_score():
+    from src.agenteval.eval.judge import parse_score
+
+    assert parse_score("8") == 0.8
+    assert parse_score("Score: 7.5/10") == 0.75
+    assert parse_score("15") == 1.0
+    assert parse_score("no idea") is None
+
+
+def test_llm_judge_uses_prompt_and_scores():
+    from src.agenteval.eval.judge import llm_judge
+
+    seen = []
+
+    def judge(prompt):
+        seen.append(prompt)
+        return "9"
+
+    assert llm_judge("2+2?", "4", "must be correct", judge) == 0.9
+    assert "2+2?" in seen[0] and "must be correct" in seen[0]
+    assert llm_judge("t", "o", "c", lambda _: "gibberish") == 0.0
+
+
+def test_evaluator_records_llm_judge_only_when_configured():
+    case = EvalCase(task="2+2?", judge_criteria="answer is 4")
+    with_judge = Evaluator(build_mock_graph(), judge=lambda _: "10").evaluate_case(case)
+    assert with_judge.scores["llm_judge"] == 1.0
+    assert "llm_judge" not in Evaluator(build_mock_graph()).evaluate_case(case).scores
+    no_criteria = Evaluator(build_mock_graph(), judge=lambda _: "10").evaluate_case(
+        EvalCase(task="2+2?")
+    )
+    assert "llm_judge" not in no_criteria.scores

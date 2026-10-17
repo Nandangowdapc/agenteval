@@ -4,6 +4,12 @@ Running log for continuity across sessions. Newest entries at the top. See `CLAU
 
 ---
 
+## 2026-10-17 — LLM-as-judge metric
+
+`src/agenteval/eval/judge.py`: `llm_judge`, `parse_score`, `create_groq_judge` (judge = any `str -> str` callable, so tests inject fakes). `EvalCase.judge_criteria`; `Evaluator(graph, judge=None)` adds an `llm_judge` score only when both are set. Wired into suite files (`judge_criteria`, non-empty string) and the suite CLI (`--judge none|groq`). README + CLAUDE.md updated. **89 tests pass**, black/ruff clean. Uncommitted. Not done: API `/evaluate` support, judge-bias mitigations, any live Groq run (still no key).
+
+---
+
 ## 2026-10-14 (later) — token_efficiency wired into Evaluator
 
 Added append-only `AgentState.token_usage` (ints, total tokens per LLM call); `llm.py` records `response.usage_metadata["total_tokens"]` (nothing if missing/None). `EvalCase.max_tokens: int | None = None` adds a `token_efficiency` score from `sum(token_usage)`; `EvalResult.tokens_used`, `EvalReport.total_tokens` / `mean_tokens`. `max_tokens` accepted in suite files (positive int, bool rejected) and the API (`EvalCaseIn.max_tokens`; results include `tokens_used`, response `total_tokens`). Unset `max_tokens` leaves behavior unchanged. Mock nodes in tests return `token_usage`; the Groq node is tested with a fake `ChatGroq`. **83 tests pass**, black/ruff clean. Uncommitted. Still no dollar-cost metric; never run with a real Groq key.

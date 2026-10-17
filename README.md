@@ -70,3 +70,4 @@ Built-in metrics (`agenteval.eval.metrics`), each scored 0–1 (higher is better
 - `tool_call_accuracy` — fraction of expected tools actually called
 - `step_efficiency` — rewards reaching an answer in fewer steps
 - `success_rate` — 1.0 if the run recorded no errors
+- `llm_judge` (`agenteval.eval.judge`) — an LLM grades the final answer against free-text `EvalCase.judge_criteria` (0–10, normalised to 0–1). Opt in with `Evaluator(graph, judge=create_groq_judge())`; suite files take `judge_criteria`, and the CLI takes `--judge groq` (needs `GROQ_API_KEY`). Without a judge or criteria the score is simply omitted.

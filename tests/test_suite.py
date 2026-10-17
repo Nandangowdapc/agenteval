@@ -92,3 +92,21 @@ def test_cli_runs_example_suite_with_mock(capsys):
 def test_cli_reports_bad_suite(tmp_path, capsys):
     assert main([str(write(tmp_path, "s.json", []))]) == 2
     assert "Suite error" in capsys.readouterr().err
+
+
+def test_judge_criteria_loaded(tmp_path):
+    cases = load_suite(
+        write(tmp_path, "s.json", [{"task": "a", "judge_criteria": "be correct"}])
+    )
+    assert cases[0].judge_criteria == "be correct"
+
+
+def test_judge_criteria_must_be_nonempty_string(tmp_path):
+    with pytest.raises(SuiteError, match="'judge_criteria'"):
+        load_suite(write(tmp_path, "s.json", [{"task": "a", "judge_criteria": " "}]))
+
+
+def test_judge_groq_without_key_raises(monkeypatch):
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    with pytest.raises(RuntimeError, match="GROQ_API_KEY"):
+        main([EXAMPLE, "--judge", "groq"])
