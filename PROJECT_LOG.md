@@ -4,6 +4,24 @@ Running log for continuity across sessions. Newest entries at the top. See `CLAU
 
 ---
 
+## 2026-10-22 (later) — tool-use prompting, judge-bias mitigations, live /evaluate
+
+**Tool-use prompting:** `create_llm_node(model, tools, system_prompt=None)` in `src/agenteval/agent/llm.py` now prepends `TOOL_SYSTEM_PROMPT` as a system message when tools are bound. Live on `examples/suite_arithmetic.json`, `tool_call_accuracy` went 0.33 -> 1.0.
+
+**Judge-bias mitigations:** rubric added to the judge prompt; `llm_judge(samples=1)` takes the median of N; `create_groq_judge(temperature=0.0)`; `Evaluator(judge_samples=1)`; suite CLI `--judge-samples N` (N>1 uses temperature 0.7). Live 3-sample run OK.
+
+**`/evaluate` live:** verified via uvicorn with the key: a 12*12 case scored overall 0.81, 532 tokens, `llm_judge` 1.0.
+
+**Docs:** teacher agent (`.claude/agents/teacher.md`) rewritten; `LEARN.md` is now a story format (chapters, cast analogies) with all technical detail kept. **95 tests pass**, black/ruff clean. Uncommitted.
+
+**Problems hit:** None.
+
+**Not done / next steps:**
+1. Judge calibration set (compare judge scores to human labels).
+2. API does not expose `judge_samples`.
+
+---
+
 ## 2026-10-22 — GROQ_API_KEY added, first live runs, model defaults updated
 
 **Live verification:** user added `GROQ_API_KEY` (first placed in `.env.example` by mistake; moved to the gitignored `.env`, `.env.example` restored, key never committed). Groq had retired `llama-3.3-70b-versatile` (404), so defaults changed: agent `openai/gpt-oss-120b` (`src/agenteval/agent/llm.py`), judge `qwen/qwen3.8-27b` (`src/agenteval/eval/judge.py`). Verified live: example 01 tool loop (17*23+4 = 395); suite CLI `--node groq --judge groq` on `examples/suite_arithmetic.json` (overall 0.66; the model answered 2+2 without calling `calculate`, so `tool_call_accuracy` 0); judge ran live on 2 cases (replies parsed fine, `llm_judge` 1.0 each; caveat: criteria vs `expected_output` can disagree). `LEARN.md` gained Part 8B via the teacher agent. **92 tests pass**, black/ruff clean. Committed `e256f6f` and pushed to origin/main.

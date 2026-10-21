@@ -181,6 +181,12 @@ def main(argv: list[str] | None = None) -> int:
         default="none",
         help="groq scores cases with judge_criteria via an LLM; needs GROQ_API_KEY",
     )
+    parser.add_argument(
+        "--judge-samples",
+        type=int,
+        default=1,
+        help="ask the judge N times and take the median (N>1 uses temperature 0.7)",
+    )
     args = parser.parse_args(argv)
 
     if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
@@ -194,8 +200,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.judge == "groq":
         from .judge import create_groq_judge
 
-        judge = create_groq_judge()
-    report = Evaluator(build_graph(args.node), judge=judge).evaluate(cases)
+        judge = create_groq_judge(temperature=0.7 if args.judge_samples > 1 else 0.0)
+    report = Evaluator(
+        build_graph(args.node), judge=judge, judge_samples=args.judge_samples
+    ).evaluate(cases)
     print(format_report(report))
     return 0
 

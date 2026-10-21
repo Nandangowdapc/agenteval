@@ -12,6 +12,12 @@ load_dotenv()
 
 DEFAULT_MODEL = "openai/gpt-oss-120b"
 
+# Without this the model often answers arithmetic from memory, skipping the tool.
+TOOL_SYSTEM_PROMPT = (
+    "You have tools available. Always use a tool for arithmetic or lookups "
+    "instead of answering from memory, then state the result."
+)
+
 
 def _total_tokens(response) -> list[int]:
     """Total tokens for one response as a 0/1-item list; empty if unreported."""
@@ -22,11 +28,17 @@ def _total_tokens(response) -> list[int]:
     return [total]
 
 
-def create_llm_node(model: str = DEFAULT_MODEL, tools: ToolRegistry | None = None):
+def create_llm_node(
+    model: str = DEFAULT_MODEL,
+    tools: ToolRegistry | None = None,
+    system_prompt: str | None = None,
+):
     """Build a node function that calls Groq for one reasoning step.
 
     With `tools`, the model may answer with tool calls instead of text; pair
     this node with `build_tool_agent` so those calls actually get executed.
+    With `tools` and no `system_prompt`, a default nudging the model to use its
+    tools is sent as a system message.
     """
     api_key = os.environ.get("GROQ_API_KEY")
     if not api_key:
@@ -35,6 +47,8 @@ def create_llm_node(model: str = DEFAULT_MODEL, tools: ToolRegistry | None = Non
             "from https://console.groq.com/keys"
         )
 
+    if system_prompt is None and tools is not None:
+        system_prompt = TOOL_SYSTEM_PROMPT
     llm = ChatGroq(model=model, api_key=api_key)
     if tools is not None:
         llm = llm.bind_tools(
@@ -48,6 +62,8 @@ def create_llm_node(model: str = DEFAULT_MODEL, tools: ToolRegistry | None = Non
         # The task isn't stored in `messages`, so prepend it on every call —
         # later steps need it alongside the tool results.
         history = [{"role": "user", "content": state["task"]}, *state["messages"]]
+        if system_prompt:
+            history.insert(0, {"role": "system", "content": system_prompt})
         response = llm.invoke(history)
         calls = [
             {"id": c["id"], "name": c["name"], "args": c["args"]}

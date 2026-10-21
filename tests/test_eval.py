@@ -245,6 +245,29 @@ def test_llm_judge_uses_prompt_and_scores():
     assert llm_judge("t", "o", "c", lambda _: "gibberish") == 0.0
 
 
+def test_llm_judge_median_of_samples():
+    from src.agenteval.eval.judge import llm_judge
+
+    replies = iter(["2", "9", "8"])
+    assert llm_judge("t", "o", "c", lambda _: next(replies), samples=3) == 0.8
+
+
+def test_judge_prompt_contains_rubric():
+    from src.agenteval.eval.judge import llm_judge
+
+    seen = []
+    llm_judge("t", "o", "c", lambda p: seen.append(p) or "5")
+    assert "9-10" in seen[0] and "0-2" in seen[0]
+
+
+def test_evaluator_passes_judge_samples():
+    case = EvalCase(task="2+2?", judge_criteria="answer is 4")
+    calls = []
+    judge = lambda p: calls.append(p) or "10"
+    Evaluator(build_mock_graph(), judge=judge, judge_samples=3).evaluate_case(case)
+    assert len(calls) == 3
+
+
 def test_evaluator_records_llm_judge_only_when_configured():
     case = EvalCase(task="2+2?", judge_criteria="answer is 4")
     with_judge = Evaluator(build_mock_graph(), judge=lambda _: "10").evaluate_case(case)

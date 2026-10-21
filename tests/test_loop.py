@@ -161,9 +161,14 @@ def test_groq_llm_node_with_tools(monkeypatch):
 
     bound_names = {t["function"]["name"] for t in fake.bound_tools}
     assert bound_names == set(tool_registry.list_tools())
-    # The task is resent on the second call, followed by the tool exchange
-    assert fake.calls[1][0] == {"role": "user", "content": "What is 6 * 7?"}
-    assert fake.calls[1][2] == {"role": "tool", "tool_call_id": "c1", "content": "42"}
+    # A system prompt nudges tool use; the task is resent on the second call,
+    # followed by the tool exchange
+    assert fake.calls[1][0] == {
+        "role": "system",
+        "content": llm_module.TOOL_SYSTEM_PROMPT,
+    }
+    assert fake.calls[1][1] == {"role": "user", "content": "What is 6 * 7?"}
+    assert fake.calls[1][3] == {"role": "tool", "tool_call_id": "c1", "content": "42"}
     assert state["tool_calls"] == [
         {"id": "c1", "name": "calculate", "args": {"expression": "6 * 7"}}
     ]

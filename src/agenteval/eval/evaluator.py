@@ -88,9 +88,12 @@ class EvalReport:
 class Evaluator:
     """Runs an AgentGraph against a set of EvalCases and scores each run."""
 
-    def __init__(self, graph: AgentGraph, judge: Judge | None = None):
+    def __init__(
+        self, graph: AgentGraph, judge: Judge | None = None, judge_samples: int = 1
+    ):
         self.graph = graph
         self.judge = judge
+        self.judge_samples = judge_samples
 
     @staticmethod
     def _final_output(state: AgentState) -> str:
@@ -142,6 +145,7 @@ class Evaluator:
                 self._final_output(final_state),
                 case.judge_criteria,
                 self.judge,
+                self.judge_samples,
             )
 
         return EvalResult(
