@@ -14,7 +14,7 @@ load_dotenv()
 
 Judge = Callable[[str], str]
 
-DEFAULT_JUDGE_MODEL = "llama-3.3-70b-versatile"
+DEFAULT_JUDGE_MODEL = "qwen/qwen3.8-27b"
 
 _PROMPT = """You are grading an AI agent's answer.
 
