@@ -46,9 +46,11 @@ examples/     01_simple_agent.py (needs GROQ_API_KEY; also runs the tool loop), 
 3. **Multi-step tool-calling agent (complete, 2026-10-06)** — `agent/loop.py`, tool-binding in `llm.py`, safe `calculate`, `tests/test_loop.py` (47 tests total), example 01 extended. Run live 2026-10-22 (tool loop OK).
 4. **API, suites/CLI, latency metric (complete, 2026-10-14)** — `api/` (6 tests, smoke-tested live with uvicorn 2026-10-17 (no key: /tools ok, /evaluate 503)), `eval/suite.py` + CLI + `examples/suite_arithmetic.json`, `latency_score`/`token_efficiency`, Evaluator timing. Token tracking added later the same day (`token_usage`, `max_tokens`, `tokens_used`). 83 tests total.
 5. **LLM-as-judge (complete, 2026-10-17, uncommitted)** — `eval/judge.py`, `Evaluator(judge=)`, `EvalCase.judge_criteria`, suite field + `--judge groq` CLI flag, API `judge_criteria` + `get_judge_factory`, README. 92 tests total. Run live against Groq 2026-10-22 (agent `openai/gpt-oss-120b`, judge `qwen/qwen3.8-27b`): replies parsed, scores sensible. Judge-bias mitigations still open.
-6. **Not started:**
-   - `GROQ_API_KEY` setup — deliberately postponed; `examples/01_simple_agent.py`, the suite CLI with `--node groq`, `/evaluate` live, and any real evaluation run are blocked on this. Untested risk: Groq/llama may emit malformed tool calls, making `langchain_groq` raise.
+6. **Live Groq verification (complete, 2026-10-22, committed e256f6f)** — key in gitignored `.env`; llama-3.3-70b-versatile was retired (404), defaults now agent `openai/gpt-oss-120b`, judge `qwen/qwen3.8-27b`. Verified live: example 01 tool loop, suite CLI `--node groq --judge groq` (overall 0.66; model skipped `calculate` on 2+2), judge on 2 cases. 92 tests.
+7. **Not started:**
+   - `/evaluate` live via uvicorn with the key.
    - Judge-bias mitigations (multiple samples, rubric).
+   - Tool-use prompting so the agent calls `calculate` instead of answering directly.
 
 ## Documentation duty
 - `LEARN.md` is the long-form manual (problem, solution, method, rationale for every file/decision, from day one). After each user query that changes code, makes a decision, or answers a why/how question, run the `teacher` subagent (`.claude/agents/teacher.md`) with a summary of the query and outcome so it updates `LEARN.md`. `session-logger` still owns `PROJECT_LOG.md` and this file's roadmap.
@@ -57,4 +59,5 @@ examples/     01_simple_agent.py (needs GROQ_API_KEY; also runs the tool loop), 
 - Subagent files in `.claude/agents/` created mid-session aren't loadable by name until Claude Code restarts; run them via a general-purpose agent told to read the `.md` until then.
 - The installed ruff enables a wider default rule set than E/F (I, UP, N, BLE, RUF...) with only `line-length` in `pyproject.toml`; numbered `examples/*` scripts have a per-file N999 ignore.
 - Windows consoles default to a non-UTF-8 codepage; examples call `sys.stdout.reconfigure(encoding="utf-8")` before printing emoji — keep that pattern in new examples.
+- Never put real keys in `.env.example` (tracked); use the gitignored `.env`. Groq retires models without notice (404) — check defaults in `agent/llm.py` and `eval/judge.py` first if live runs fail.
 - `requirements.txt` versions were already present in the repo's `venv/` as of 2026-10-02 (`pip install -r requirements.txt` was a no-op) — if dependencies ever drift, check the venv before assuming a fresh install is needed.

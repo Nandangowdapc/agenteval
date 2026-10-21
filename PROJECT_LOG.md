@@ -4,6 +4,19 @@ Running log for continuity across sessions. Newest entries at the top. See `CLAU
 
 ---
 
+## 2026-10-22 — GROQ_API_KEY added, first live runs, model defaults updated
+
+**Live verification:** user added `GROQ_API_KEY` (first placed in `.env.example` by mistake; moved to the gitignored `.env`, `.env.example` restored, key never committed). Groq had retired `llama-3.3-70b-versatile` (404), so defaults changed: agent `openai/gpt-oss-120b` (`src/agenteval/agent/llm.py`), judge `qwen/qwen3.8-27b` (`src/agenteval/eval/judge.py`). Verified live: example 01 tool loop (17*23+4 = 395); suite CLI `--node groq --judge groq` on `examples/suite_arithmetic.json` (overall 0.66; the model answered 2+2 without calling `calculate`, so `tool_call_accuracy` 0); judge ran live on 2 cases (replies parsed fine, `llm_judge` 1.0 each; caveat: criteria vs `expected_output` can disagree). `LEARN.md` gained Part 8B via the teacher agent. **92 tests pass**, black/ruff clean. Committed `e256f6f` and pushed to origin/main.
+
+**Problems hit:** key pasted into a tracked file (caught before commit); retired default model (404).
+
+**Not done / next steps:**
+1. `/evaluate` live via uvicorn with the key.
+2. Judge-bias mitigations (multiple samples, rubric).
+3. Possibly prompt the agent to use tools so it calls `calculate` instead of answering directly.
+
+---
+
 ## 2026-10-17 — LLM-as-judge metric
 
 `src/agenteval/eval/judge.py`: `llm_judge`, `parse_score`, `create_groq_judge` (judge = any `str -> str` callable, so tests inject fakes). `EvalCase.judge_criteria`; `Evaluator(graph, judge=None)` adds an `llm_judge` score only when both are set. Wired into suite files (`judge_criteria`, non-empty string) and the suite CLI (`--judge none|groq`). README + CLAUDE.md updated. **89 tests pass**, black/ruff clean. Uncommitted. Follow-up same day: `/evaluate` accepts `judge_criteria` via an injectable `get_judge_factory` dependency (judge built only when a case needs it; 503 without key); 92 tests. Not done: judge-bias mitigations, any live Groq run (still no key).
