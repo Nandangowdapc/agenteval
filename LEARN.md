@@ -23,6 +23,7 @@
 - [Chapter 5 — A second opinion (2026-10-17)](#chapter-5--a-second-opinion-2026-10-17)
 - [Chapter 6 — First day with the real brain (2026-10-22)](#chapter-6--first-day-with-the-real-brain-2026-10-22)
 - [Chapter 7 — Teaching the employee to use the toolbox, and a fairer second opinion (2026-10-22)](#chapter-7--teaching-the-employee-to-use-the-toolbox-and-a-fairer-second-opinion-2026-10-22)
+- [Chapter 8 — Who rents the brain? Staying a library, and swappable providers (2026-10-24)](#chapter-8--who-rents-the-brain-staying-a-library-and-swappable-providers-2026-10-24)
 - [Where everything lives (file-by-file)](#where-everything-lives-file-by-file)
 - [How we test](#how-we-test)
 - [Decision log](#decision-log)
@@ -59,7 +60,8 @@ AgentEval is a small town of workers. Each part gets an everyday analogy, and th
 | **The employee's notebook** | `AgentState`, a plain dict of everything the agent remembers (messages, tool calls, errors...). | `agent/state.py` |
 | **The workflow chart on the wall** | `AgentGraph`, a wrapper over LangGraph's `StateGraph`: boxes (nodes) joined by arrows (edges). | `agent/graph.py` |
 | **The gadgets in the toolbox** | Tools: `calculate`, `search`, kept in a `ToolRegistry`. | `agent/tools.py` |
-| **The employee's brain, rented from Groq** | The LLM node: a function that sends the conversation to a hosted model and returns its reply. | `agent/llm.py` |
+| **The employee's brain, rented from Groq (by default)** | The LLM node: a function that sends the conversation to a hosted model and returns its reply. | `agent/llm.py` |
+| **The staffing-agency directory** | `PROVIDERS`: the list of services (Groq, OpenAI, Anthropic, Ollama) the brain can be rented from. | `agent/providers.py` |
 | **The work routine** | The tool loop: think, use a gadget, think again, until done (or told to stop). | `agent/loop.py` |
 | **The examiner** | `Evaluator`: gives the employee a task, watches, and marks the result. | `eval/evaluator.py` |
 | **The marking criteria** | Metrics: `exact_match`, `contains_match`, `tool_call_accuracy`, `step_efficiency`, `success_rate`, `latency_score`, `token_efficiency`. | `eval/metrics.py` |
@@ -606,6 +608,63 @@ Every component has now met the real world at least once, in small samples. What
 
 ---
 
+## Chapter 8 — Who rents the brain? Staying a library, and swappable providers (2026-10-24)
+
+### The trouble
+Two questions arrived together.
+
+First, a question about shape: should AgentEval become a public website where anyone can try it? Second, a question about lock-in: so far the employee's brain was always rented from one company, Groq. If a developer already pays for OpenAI or Anthropic, or wants to run a model on their own laptop, the code gave them no way in. The Groq name was baked into `llm.py`, `judge.py`, the API and the CLI.
+
+### The idea
+**Decision 1: stay a Python library, no public website.** We weighed two options:
+- *A public site*: friendly for visitors, but every visitor's evaluation would spend the author's Groq key. That means key abuse and quota exhaustion (the free tier is limited), plus ongoing upkeep (hosting, rate limiting, security).
+- *A library*: a developer installs it and puts **their own** key in their own `.env`. Nobody ever uses the author's key, and there is nothing to keep running.
+
+We chose the library. (The `api/` layer still exists, but it is something you run yourself, with your own key.)
+
+**Decision 2: let developers switch providers, with Groq still the default.** The idea is a small **registry** (a lookup table) of providers. Think of it as a staffing agency directory: the employee's brain can be rented from any listed agency, and the town works the same whichever one is chosen. This works because LangChain's chat classes for all these services share one interface (`.invoke()`, `.bind_tools()`, `usage_metadata`), so the rest of the code does not care which one it holds. The analogy stops here: the brains are not interchangeable in quality. A different model can behave differently on the same exam, so scores from different providers are not directly comparable.
+
+Trade-off we accepted: each non-Groq provider needs its own package. Rather than force everyone to install all of them, imports are **lazy** (done only when that provider is chosen) and the packages are **optional extras**.
+
+### How it was built
+
+#### `agent/providers.py` (new)
+- `Provider`: a frozen dataclass with `name`, `env_var` (the API-key variable, `None` if no key needed), `default_model`, `default_judge_model`, `signup_hint`, `extra` (the pip extra name) and `factory` `(model, api_key, temperature) -> chat model`.
+- `PROVIDERS`: the registry, `groq`, `openai`, `anthropic`, `ollama`. Each factory (`_groq`, `_openai`, `_anthropic`, `_ollama`) imports its LangChain class inside the function, so `langchain_openai` is only needed if you pick OpenAI. `_temp` adds `temperature` only when one was given.
+- `get_provider(name=None)`: resolution order is **explicit name, then `$AGENTEVAL_PROVIDER`, then `groq`**. Case-insensitive. An unknown name raises `ValueError` listing the valid choices.
+- `create_chat_model(provider, model, temperature, judge=False)`: looks up the provider, **fails fast** if its key variable is unset (`RuntimeError` with the signup hint, same philosophy as Chapter 1), picks `default_judge_model` when `judge=True` else `default_model`, then calls the factory. If the LangChain package is missing, the `ImportError` is re-raised with the hint `pip install 'agenteval[<extra>]'`. Ollama has `env_var=None`, so it needs no key.
+
+Default models per provider (agent / judge): groq `openai/gpt-oss-120b` / `qwen/qwen3.8-27b`; openai `gpt-4o-mini` / `gpt-4o`; anthropic `claude-haiku-5-5` / `claude-sonnet-5-5`; ollama `llama3.1` / `qwen2.5`. Each provider has a *different* judge default than its agent default, to keep the Chapter 5/6 self-preference defence.
+
+#### Rewiring the existing files
+- `agent/llm.py`: `create_llm_node(model=None, tools=None, system_prompt=None, provider=None)`. It no longer imports `ChatGroq` or reads `GROQ_API_KEY` itself; it calls `create_chat_model(provider, model)`. `DEFAULT_MODEL` is now derived from `PROVIDERS["groq"]`. Tool binding and the system prompt are unchanged.
+- `eval/judge.py`: new `create_judge(provider=None, model=None, temperature=0.0)` (uses `judge=True`). `create_groq_judge(model, temperature)` is kept as a thin wrapper calling `create_judge("groq", ...)`, so old code still works.
+- `eval/suite.py` CLI: new `--provider`, `--model`, `--judge-provider`, `--judge-model`. `--node` and `--judge` now accept `llm`; `groq` stays as an alias meaning the same thing (the default provider, or `--provider` if given). The judge provider falls back to `--provider`, then to the default. `build_graph(node, provider=None, model=None)` gained those arguments.
+- `api/app.py`: the factories now call the generic builders and convert `RuntimeError` (missing key) into HTTP 503, replacing the hand-written `os.environ` check. So the API honours `$AGENTEVAL_PROVIDER` too.
+- `pyproject.toml`: `[project.optional-dependencies]` with `openai`, `anthropic`, `ollama` extras. Groq stays in `requirements.txt` as the base. `.env.example` got `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` placeholders (names only); the README gained a providers table.
+
+Worked example:
+```bash
+# default: Groq, as before
+PYTHONPATH=src python -m agenteval.eval.suite examples/suite_arithmetic.json --node llm
+# switch the agent to OpenAI and keep the judge on Groq
+PYTHONPATH=src python -m agenteval.eval.suite examples/suite_arithmetic.json \
+  --node llm --provider openai --judge llm --judge-provider groq
+# or set it once for everything
+AGENTEVAL_PROVIDER=ollama
+```
+
+### Did it work?
+- 107 tests pass (verified with `venv/Scripts/python -m pytest -q`); black and ruff clean (per the caller). New `tests/test_providers.py` has 11 test functions (12 collected, one is parametrized): registry and default, resolution order, unknown provider, missing-key hint per provider, Ollama needing no key, default vs judge models, missing-extra hint, `create_judge` passing provider and temperature, and the CLI failing cleanly when a key is missing. Existing tests in `test_eval.py` and `test_loop.py` now monkeypatch `langchain_groq.ChatGroq` (the class's new import location, since `llm.py` no longer holds it at module level).
+- Live (per the caller): the Groq suite CLI re-ran fine (overall 0.68, `tool_call_accuracy` 1.0); `--provider openai` with no key printed the clean setup hint instead of a stack trace.
+- **Not verified:** the OpenAI, Anthropic and Ollama paths are **mock-tested only**; no live call was made. Their default model IDs were **not checked against the providers' docs** and may be wrong or stale. Treat them as placeholders. This is the same lesson as Chapter 6: tests cannot catch a retired or misspelled model name.
+- Pitfall: scores across providers are not comparable (see Chapter 7's note on prompt changes; a model change is a bigger version of that).
+
+### Cliffhanger
+The brain is now swappable, but only Groq has ever really been run. Next: verify the other providers' model IDs and a real run each, then still the judge calibration set and `judge_samples` in the API. See [Next steps](#next-steps).
+
+---
+
 ## Where everything lives (file-by-file)
 
 ### Root
@@ -615,7 +674,7 @@ Every component has now met the real world at least once, in small samples. What
 | `PROJECT_LOG.md` | Dated diary, newest first, maintained by `session-logger`. |
 | `LEARN.md` | This story; maintained by `teacher`. |
 | `README.md` | Quick-start, layout, evaluation overview. |
-| `pyproject.toml` | Package metadata; black/ruff config; N999 ignore for examples. |
+| `pyproject.toml` | Package metadata; black/ruff config; N999 ignore for examples; optional extras `openai`, `anthropic`, `ollama` (Chapter 8). |
 | `requirements.txt` | Dependencies (minimum versions). |
 | `.env.example` | Committed template: variable names only, never real values. Real `.env` is git-ignored (see Chapter 6). |
 | `.gitignore` | Excludes venv, caches, `.env`, `results/`, `*.db`, IDE folders. |
@@ -627,13 +686,14 @@ Every component has now met the real world at least once, in small samples. What
 | `agent/state.py` | `AgentState`, `create_initial_state`. | 1 (+tokens in 4) |
 | `agent/graph.py` | `AgentGraph` with `run()` and `recursion_limit`. | 1 (+limit in 3) |
 | `agent/tools.py` | `Tool`, `ToolRegistry`, safe `calculate`, mock `search`, global `tool_registry`. | 1 (safe calc in 3) |
-| `agent/llm.py` | `create_llm_node(model, tools, system_prompt)`, `TOOL_SYSTEM_PROMPT`, `_total_tokens`. | 1 (+tools in 3, +tokens in 4, +model change in 6, +system prompt in 7) |
+| `agent/llm.py` | `create_llm_node(model, tools, system_prompt, provider)`, `TOOL_SYSTEM_PROMPT`, `_total_tokens`. | 1 (+tools in 3, +tokens in 4, +model change in 6, +system prompt in 7, +provider in 8) |
+| `agent/providers.py` | `Provider`, `PROVIDERS`, `get_provider`, `create_chat_model`; lazy per-provider imports. | 8 |
 | `agent/loop.py` | `create_tool_node`, `create_router`, `build_tool_agent`. | 3 |
 | `eval/metrics.py` | Seven metric functions. | 2 (+2 in 4) |
 | `eval/evaluator.py` | `EvalCase`, `EvalResult`, `EvalReport`, `Evaluator(graph, judge, judge_samples)`. | 2 (extended 4, 5, 7) |
-| `eval/judge.py` | `Judge`, `parse_score`, `llm_judge(..., samples)`, `create_groq_judge(model, temperature)`; rubric prompt. | 5 (+model in 6, +rubric, sampling in 7) |
-| `eval/suite.py` | `load_suite`, `SuiteError`, `build_graph`, `format_report`, CLI `main` (`--node`, `--judge`, `--judge-samples`). | 4 (+judge 5, +samples 7) |
-| `api/app.py` | FastAPI app, DI factories, three routes. | 4 (+judge 5) |
+| `eval/judge.py` | `Judge`, `parse_score`, `llm_judge(..., samples)`, `create_judge(provider, model, temperature)`, `create_groq_judge` (wrapper); rubric prompt. | 5 (+model in 6, +rubric, sampling in 7, +create_judge in 8) |
+| `eval/suite.py` | `load_suite`, `SuiteError`, `build_graph`, `format_report`, CLI `main` (`--node`, `--provider`, `--model`, `--judge`, `--judge-provider`, `--judge-model`, `--judge-samples`). | 4 (+judge 5, +samples 7, +providers 8) |
+| `api/app.py` | FastAPI app, DI factories (RuntimeError -> 503), three routes. | 4 (+judge 5, +providers 8) |
 | `api/models.py` | Pydantic request/response models. | 4 |
 
 ### `tests/`, `examples/`
@@ -656,11 +716,12 @@ How each layer achieves that:
 | Evaluator | A **mock LLM node** (plain function returning canned state deltas). |
 | Tool loop | A **scripted** mock node (returns a prepared sequence) to force exact tool-call paths, including unknown tools, bad args, and hitting the cap. |
 | Real `llm_node` | A **`FakeChatGroq`** substituted via `monkeypatch`, so the real code that builds messages and reads `usage_metadata` runs without a network call. |
+| Providers | `monkeypatch` of env vars and of `langchain_groq.ChatGroq` / import failures; asserts on resolution order, setup hints and default models. No network. |
 | API | `app.dependency_overrides` replace the LLM and judge factories; FastAPI's test client drives requests. |
 | Judge | Fake judge callables returning fixed strings (`"8"`, `"garbage"`); an iterator of replies (`"2","9","8"`) to test the median; a recording lambda to assert the prompt contains the rubric and that `judge_samples` triggers N calls. |
 | Suites | Temp files via pytest fixtures, valid and invalid. |
 
-**Test-count progression:** 6 (Chapter 1) → 13 (Chapter 2) → 47 (Chapter 3) → 72 → 83 (Chapter 4) → 92 (Chapter 5) → 95 (Chapter 7; the final +3 are the judge rubric/median/`judge_samples` tests, 2026-10-22; 92 was unchanged by the Chapter 6 model change). Tests mock the LLM, so a retired model could never fail them, which is also why they could not have caught it. Likewise the tool-use prompt fix could only be *seen* live; the mocked test just asserts the system message is sent.
+**Test-count progression:** 6 (Chapter 1) → 13 (Chapter 2) → 47 (Chapter 3) → 72 → 83 (Chapter 4) → 92 (Chapter 5) → 95 (Chapter 7; the final +3 are the judge rubric/median/`judge_samples` tests, 2026-10-22; 92 was unchanged by the Chapter 6 model change) → 107 (Chapter 8; +12 collected from `tests/test_providers.py` (11 test functions, one parametrized), 2026-10-24; verified by running pytest). Tests mock the LLM, so a retired model could never fail them, which is also why they could not have caught it. Likewise the tool-use prompt fix could only be *seen* live; the mocked test just asserts the system message is sent.
 
 **The honest limitation:** green tests prove the *plumbing* is right, not that real Groq behaves. As of 2026-10-22 the agent tool loop, suite CLI, judge (3-sample run) and `/evaluate` have each been run live (per the caller). Never claim more.
 
@@ -699,6 +760,12 @@ One-liners; the reasoning is in the chapters.
 | 23 | Judge prompt has explicit 0-2/3-5/6-8/9-10 rubric, judge on criteria only | Anchor the scale; reduce style/length bias | 7 |
 | 24 | `samples` gives median, not mean | Robust to one outlier rating | 7 |
 | 25 | Judge temperature 0 by default; CLI uses 0.7 only when `--judge-samples` > 1 | Sampling is pointless at temperature 0 | 7 |
+| 26 | Stay a Python library; no public website (2026-10-24) | A public site would spend the author's Groq key (abuse, quota) and need upkeep; library users bring their own key | 8 |
+| 27 | Provider registry (`providers.py`); Groq stays default; resolution: explicit > `$AGENTEVAL_PROVIDER` > groq | Let developers switch LLM APIs without touching code | 8 |
+| 28 | Lazy provider imports; non-Groq packages are optional extras | No forced install of unused packages | 8 |
+| 29 | Fail fast on missing key (`RuntimeError`) and missing package (`ImportError` with pip hint) | Clear setup hint instead of a deep LangGraph error; API maps `RuntimeError` to 503 | 8 |
+| 30 | Judge default model differs from agent default within every provider | Keep self-preference defence (decision 19) | 8 |
+| 31 | `--node/--judge` accept `llm`; `groq` kept as alias; `create_groq_judge` kept as wrapper | Backwards compatibility | 8 |
 
 ---
 
@@ -712,6 +779,7 @@ One-liners; the reasoning is in the chapters.
 6. **Evaluation is sequential**: one case at a time, no concurrency.
 7. `step_efficiency` can't distinguish a *useful* extra step from a wasted one.
 8. **Prompt changes shift scores:** pre-prompt (0.66) and post-prompt arithmetic results are not comparable.
+9. **Non-Groq providers are untested live** (mock tests only), and their default model IDs (`gpt-4o-mini`/`gpt-4o`, `claude-haiku-5-5`/`claude-sonnet-5-5`, `llama3.1`/`qwen2.5`) were not checked against provider docs. Scores across providers are not comparable.
 
 ---
 
@@ -719,10 +787,11 @@ One-liners; the reasoning is in the chapters.
 
 Priority order:
 1. Done 2026-10-22: key, example 01, suite `--node groq`, tool-use prompt, rubric + sampling, judge and `/evaluate` live.
-2. Build a small human-labelled **calibration set** for the judge and measure agreement.
-3. Expose `judge_samples` in the API request model.
-4. Optional dollar-cost metric.
-5. Persistence of reports (would finally use SQLAlchemy).
+2. Verify the OpenAI/Anthropic/Ollama default model IDs against provider docs and do one live run each (Chapter 8).
+3. Build a small human-labelled **calibration set** for the judge and measure agreement.
+4. Expose `judge_samples` in the API request model.
+5. Optional dollar-cost metric.
+6. Persistence of reports (would finally use SQLAlchemy).
 
 ---
 
@@ -730,7 +799,12 @@ Priority order:
 
 > **Maintained by the `teacher` subagent.** After each user query it adds a dated entry here (newest first) summarising *what was asked, what was answered or changed, and why*, then, if the project changed, updates the relevant chapter above so the story stays true. Entries explain concepts in depth; they are not terse log lines. Older entries below refer to the manual's former "Part N" numbering; the mapping is: Part 8B = Chapter 6, Part 8C = Chapter 7, Part 8 = Chapter 5, Parts 9-13 = the reference sections at the end of this file.
 
-### 2026-10-22 (latest) — Manual rewritten as a story
+### 2026-10-24 (latest) — Library, not website; swappable LLM providers
+- **Asked:** keep AgentEval a Python library (no public website, because of key abuse/quota and upkeep; library users use their own key) and let developers switch LLM APIs while Groq stays the default.
+- **Done:** added Chapter 8. New `agent/providers.py` (`Provider`, `PROVIDERS` for groq/openai/anthropic/ollama, `get_provider`, `create_chat_model`); `create_llm_node(model=None, ..., provider=None)`; `create_judge` (with `create_groq_judge` kept as wrapper); CLI `--provider/--model/--judge-provider/--judge-model` and `llm` as the new name for `groq`; API factories turn `RuntimeError` into 503; extras in `pyproject.toml`; `.env.example` and README updated. pytest re-run by me: 107 passed.
+- **Why:** a public site would burn the author's free-tier key and need hosting; a library pushes cost and key to the user. A registry plus lazy imports gives choice without forcing every provider package on everyone. Not verified: non-Groq providers live and their default model IDs (mock-tested only). Live Groq CLI re-run (overall 0.68) and the clean missing-key hint for `--provider openai` are the caller's report.
+
+### 2026-10-22 — Manual rewritten as a story
 - **Asked:** rewrite `LEARN.md` (712 lines) into the new story format defined in `.claude/agents/teacher.md`: chronological chapters with the five-beat arc, a "Meet the cast" section, and the reference sections kept; keep every technical fact.
 - **Done:** converted old Parts 1-8C into a Prologue, an architecture overview, a technology section, and Chapters 1-7 (Parts 4, 5, 6, 7, 8, 8B, 8C respectively). Added "Meet the cast" with the analogy table and where the analogies stop. Kept and re-pointed the file table, "How we test", decision log (now with a Chapter column), limitations, next steps, glossary and this Notebook. Verified the test count with `venv/Scripts/python -m pytest -q`: 95 passed. No code or numbers were changed or invented.
 - **Why:** a reader with no AI background should be able to follow what happened and why, while engineers still find the exact names and trade-offs. Cross-references of the form "Part 8B" were rewritten to "Chapter 6" etc.
@@ -781,5 +855,10 @@ Priority order:
 - **Median** — the middle value of sorted numbers; unlike the mean, one outlier cannot move it.
 - **Temperature** — sampling randomness of an LLM; 0 = (near) deterministic, higher = more varied replies.
 - **Multi-sampling** — asking the judge N times and aggregating (`samples` / `--judge-samples`); useful only at temperature > 0.
+- **Provider** — a hosted-LLM service (Groq, OpenAI, Anthropic) or a local runner (Ollama), described by a `Provider` entry in `PROVIDERS`. In the story: a staffing agency.
+- **Registry** — a lookup table of named options (`PROVIDERS`, also `ToolRegistry`).
+- **Lazy import** — importing a package only at the moment it is needed, so unused optional packages need not be installed.
+- **Optional extra** — a group of optional dependencies in `pyproject.toml`, installed with `pip install 'agenteval[openai]'`.
+- **Ollama** — software that runs open models on your own machine; needs no API key.
 - **Calibration set** — human-labelled examples used to check that judge scores agree with human judgement (not yet built).
 - **Smoke test** — a single quick real run proving the pieces connect, not proving correctness.

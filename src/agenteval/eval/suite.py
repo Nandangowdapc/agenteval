@@ -11,7 +11,7 @@ A bare top-level list of cases is also accepted.
 
 CLI::
 
-    python -m agenteval.eval.suite examples/suite_arithmetic.json [--node mock|groq]
+    python -m agenteval.eval.suite examples/suite_arithmetic.json [--node mock|llm] [--provider groq|openai|anthropic|ollama]
 """
 
 import argparse
@@ -21,6 +21,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from ..agent.providers import PROVIDERS
 from .evaluator import EvalCase, EvalReport, Evaluator
 
 _CASE_FIELDS = {
@@ -140,18 +141,24 @@ def _mock_llm_node(state):
     }
 
 
-def build_graph(node: str):
-    """Build the agent graph for the CLI: 'mock' (no key) or 'groq' (real LLM)."""
+def build_graph(node: str, provider: str | None = None, model: str | None = None):
+    """Build the agent graph for the CLI: 'mock' (no key) or 'llm'/'groq' (real LLM).
+
+    'groq' is the old spelling of 'llm' and still means the default provider.
+    """
     from langgraph.graph import END
 
     from ..agent.graph import AgentGraph
 
-    if node == "groq":
+    if node in ("llm", "groq"):
         from ..agent.llm import create_llm_node
         from ..agent.loop import build_tool_agent
         from ..agent.tools import tool_registry
 
-        return build_tool_agent(create_llm_node(tools=tool_registry), tool_registry)
+        return build_tool_agent(
+            create_llm_node(model, tools=tool_registry, provider=provider),
+            tool_registry,
+        )
     graph = AgentGraph(name="mock-agent")
     graph.add_node("llm", _mock_llm_node)
     graph.set_entry_point("llm")
@@ -171,16 +178,28 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("path", help="suite file (.json, .yaml, .yml)")
     parser.add_argument(
         "--node",
-        choices=["mock", "groq"],
+        choices=["mock", "llm", "groq"],
         default="mock",
-        help="mock needs no API key; groq needs GROQ_API_KEY (default: mock)",
+        help="mock needs no API key; llm uses --provider (groq is an alias for llm)",
     )
     parser.add_argument(
-        "--judge",
-        choices=["none", "groq"],
-        default="none",
-        help="groq scores cases with judge_criteria via an LLM; needs GROQ_API_KEY",
+        "--provider",
+        choices=sorted(PROVIDERS),
+        help="LLM provider for --node llm (default: $AGENTEVAL_PROVIDER, else groq)",
     )
+    parser.add_argument("--model", help="agent model (default: the provider's)")
+    parser.add_argument(
+        "--judge",
+        choices=["none", "llm", "groq"],
+        default="none",
+        help="llm scores cases with judge_criteria via an LLM (groq is an alias)",
+    )
+    parser.add_argument(
+        "--judge-provider",
+        choices=sorted(PROVIDERS),
+        help="provider for the judge (default: --provider, else the default)",
+    )
+    parser.add_argument("--judge-model", help="judge model (default: the provider's)")
     parser.add_argument(
         "--judge-samples",
         type=int,
@@ -197,12 +216,18 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Suite error: {exc}", file=sys.stderr)
         return 2
     judge = None
-    if args.judge == "groq":
-        from .judge import create_groq_judge
+    if args.judge != "none":
+        from .judge import create_judge
 
-        judge = create_groq_judge(temperature=0.7 if args.judge_samples > 1 else 0.0)
+        judge = create_judge(
+            args.judge_provider or args.provider,
+            args.judge_model,
+            temperature=0.7 if args.judge_samples > 1 else 0.0,
+        )
     report = Evaluator(
-        build_graph(args.node), judge=judge, judge_samples=args.judge_samples
+        build_graph(args.node, args.provider, args.model),
+        judge=judge,
+        judge_samples=args.judge_samples,
     ).evaluate(cases)
     print(format_report(report))
     return 0

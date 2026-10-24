@@ -154,7 +154,7 @@ class FakeChatGroq:
 def test_groq_llm_node_with_tools(monkeypatch):
     fake = FakeChatGroq()
     monkeypatch.setenv("GROQ_API_KEY", "test-key")
-    monkeypatch.setattr(llm_module, "ChatGroq", lambda **kwargs: fake)
+    monkeypatch.setattr("langchain_groq.ChatGroq", lambda **kwargs: fake)
 
     node = llm_module.create_llm_node(tools=tool_registry)
     state = build_tool_agent(node).run("What is 6 * 7?")

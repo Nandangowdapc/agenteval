@@ -4,18 +4,15 @@ A judge is any callable `str -> str` (prompt in, reply out), so tests can inject
 a deterministic one and `create_groq_judge` supplies the real thing.
 """
 
-import os
 import re
 import statistics
 from collections.abc import Callable
 
-from dotenv import load_dotenv
-
-load_dotenv()
+from ..agent.providers import PROVIDERS, create_chat_model
 
 Judge = Callable[[str], str]
 
-DEFAULT_JUDGE_MODEL = "qwen/qwen3.8-27b"
+DEFAULT_JUDGE_MODEL = PROVIDERS["groq"].default_judge_model
 
 _PROMPT = """You are grading an AI agent's answer.
 
@@ -65,21 +62,26 @@ def llm_judge(
     return statistics.median(scores)
 
 
-def create_groq_judge(
-    model: str = DEFAULT_JUDGE_MODEL, temperature: float = 0.0
+def create_judge(
+    provider: str | None = None,
+    model: str | None = None,
+    temperature: float = 0.0,
 ) -> Judge:
-    """Build a judge backed by Groq (needs GROQ_API_KEY), temperature 0 by default."""
-    api_key = os.environ.get("GROQ_API_KEY")
-    if not api_key:
-        raise RuntimeError(
-            "GROQ_API_KEY is not set. Copy .env.example to .env and add your key "
-            "from https://console.groq.com/keys"
-        )
-    from langchain_groq import ChatGroq
+    """Build a judge backed by `provider` (default: $AGENTEVAL_PROVIDER, else Groq).
 
-    llm = ChatGroq(model=model, api_key=api_key, temperature=temperature)
+    Needs that provider's API key; temperature 0 by default. Pick a different
+    model from the agent's, otherwise the judge favours its own style.
+    """
+    llm = create_chat_model(provider, model, temperature, judge=True)
 
     def judge(prompt: str) -> str:
         return str(llm.invoke(prompt).content)
 
     return judge
+
+
+def create_groq_judge(
+    model: str = DEFAULT_JUDGE_MODEL, temperature: float = 0.0
+) -> Judge:
+    """Build a judge backed by Groq (needs GROQ_API_KEY), temperature 0 by default."""
+    return create_judge("groq", model, temperature)

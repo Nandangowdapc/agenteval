@@ -1,16 +1,10 @@
-"""LLM inference node backed by Groq."""
+"""LLM inference node backed by a pluggable provider (Groq by default)."""
 
-import os
-
-from dotenv import load_dotenv
-from langchain_groq import ChatGroq
-
+from .providers import PROVIDERS, create_chat_model
 from .state import AgentState
 from .tools import ToolRegistry
 
-load_dotenv()
-
-DEFAULT_MODEL = "openai/gpt-oss-120b"
+DEFAULT_MODEL = PROVIDERS["groq"].default_model
 
 # Without this the model often answers arithmetic from memory, skipping the tool.
 TOOL_SYSTEM_PROMPT = (
@@ -29,27 +23,23 @@ def _total_tokens(response) -> list[int]:
 
 
 def create_llm_node(
-    model: str = DEFAULT_MODEL,
+    model: str | None = None,
     tools: ToolRegistry | None = None,
     system_prompt: str | None = None,
+    provider: str | None = None,
 ):
-    """Build a node function that calls Groq for one reasoning step.
+    """Build a node function that calls an LLM for one reasoning step.
 
+    `provider` is one of `PROVIDERS` (default: $AGENTEVAL_PROVIDER, else Groq);
+    `model` defaults to that provider's agent model.
     With `tools`, the model may answer with tool calls instead of text; pair
     this node with `build_tool_agent` so those calls actually get executed.
     With `tools` and no `system_prompt`, a default nudging the model to use its
     tools is sent as a system message.
     """
-    api_key = os.environ.get("GROQ_API_KEY")
-    if not api_key:
-        raise RuntimeError(
-            "GROQ_API_KEY is not set. Copy .env.example to .env and add your key "
-            "from https://console.groq.com/keys"
-        )
-
     if system_prompt is None and tools is not None:
         system_prompt = TOOL_SYSTEM_PROMPT
-    llm = ChatGroq(model=model, api_key=api_key)
+    llm = create_chat_model(provider, model)
     if tools is not None:
         llm = llm.bind_tools(
             [

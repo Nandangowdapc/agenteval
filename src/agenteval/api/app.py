@@ -5,7 +5,6 @@ override it with a mock via `app.dependency_overrides`; the default factory
 builds the real Groq node and only works when GROQ_API_KEY is set.
 """
 
-import os
 from collections.abc import Callable
 from typing import Annotated
 
@@ -32,15 +31,14 @@ app = FastAPI(title="AgentEval API", version="0.1.0")
 
 
 def groq_llm_node_factory(registry: ToolRegistry) -> LLMNode:
-    """Default factory: the real Groq node, requires GROQ_API_KEY."""
+    """Default factory: the configured provider's node (Groq unless
+    $AGENTEVAL_PROVIDER says otherwise); 503 if its key is missing."""
     from ..agent.llm import create_llm_node
 
-    if not os.environ.get("GROQ_API_KEY"):
-        raise HTTPException(
-            status_code=503,
-            detail="GROQ_API_KEY is not set; cannot build the Groq LLM node.",
-        )
-    return create_llm_node(tools=registry)
+    try:
+        return create_llm_node(tools=registry)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 def get_llm_node_factory() -> LLMNodeFactory:
@@ -49,15 +47,13 @@ def get_llm_node_factory() -> LLMNodeFactory:
 
 
 def groq_judge_factory() -> Judge:
-    """Default judge factory: the real Groq judge, requires GROQ_API_KEY."""
-    from ..eval.judge import create_groq_judge
+    """Default judge factory: the configured provider's judge; 503 if no key."""
+    from ..eval.judge import create_judge
 
-    if not os.environ.get("GROQ_API_KEY"):
-        raise HTTPException(
-            status_code=503,
-            detail="GROQ_API_KEY is not set; cannot build the Groq judge.",
-        )
-    return create_groq_judge()
+    try:
+        return create_judge()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 def get_judge_factory() -> JudgeFactory:

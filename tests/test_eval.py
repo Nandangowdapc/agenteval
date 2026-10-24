@@ -208,7 +208,7 @@ def test_llm_node_records_token_usage(monkeypatch):
             return FakeResponse(FakeChat.usage)
 
     monkeypatch.setenv("GROQ_API_KEY", "test")
-    monkeypatch.setattr(llm_module, "ChatGroq", FakeChat)
+    monkeypatch.setattr("langchain_groq.ChatGroq", FakeChat)
     node = llm_module.create_llm_node()
     state = create_initial_state("hi")
 

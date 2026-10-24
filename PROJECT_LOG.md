@@ -4,6 +4,23 @@ Running log for continuity across sessions. Newest entries at the top. See `CLAU
 
 ---
 
+## 2026-10-24 — multi-provider LLM support
+
+**Providers:** new `src/agenteval/agent/providers.py` registry (Groq default; OpenAI, Anthropic, Ollama as optional extras). `create_llm_node(provider=)` in `src/agenteval/agent/llm.py` and `create_judge()` in `src/agenteval/eval/judge.py` use it. Suite CLI (`src/agenteval/eval/suite.py`) gained `--provider`, `--model`, `--judge-provider`, `--judge-model`. README has a providers table; `pyproject.toml` and `.env.example` updated. New `tests/test_providers.py`. **107 tests pass.** Uncommitted.
+
+**Verification:** Groq re-verified live. Other providers are mock-tested only, so their default model IDs are unverified.
+
+**Decision:** stay a library rather than build a public website. A hosted demo would put a shared API key behind public traffic (quota exhaustion, abuse) and add upkeep.
+
+**Problems hit:** None.
+
+**Not done / next steps:**
+1. Live-test a non-Groq provider and verify its default model IDs.
+2. Judge calibration set (judge scores vs human labels).
+3. Expose `judge_samples` in the API.
+
+---
+
 ## 2026-10-22 (later) — tool-use prompting, judge-bias mitigations, live /evaluate
 
 **Tool-use prompting:** `create_llm_node(model, tools, system_prompt=None)` in `src/agenteval/agent/llm.py` now prepends `TOOL_SYSTEM_PROMPT` as a system message when tools are bound. Live on `examples/suite_arithmetic.json`, `tool_call_accuracy` went 0.33 -> 1.0.

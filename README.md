@@ -11,7 +11,7 @@ src/agenteval/
 │   ├── state.py   # AgentState TypedDict + initial-state factory
 │   ├── graph.py   # AgentGraph wrapper around LangGraph's StateGraph
 │   ├── tools.py   # Tool registry (calculate, search, ...)
-│   └── llm.py     # Groq-backed LLM inference node
+│   └── llm.py     # LLM inference node (Groq default, pluggable providers)
 └── eval/
     ├── metrics.py    # Scoring functions (exact_match, tool_call_accuracy, ...)
     └── evaluator.py  # EvalCase / Evaluator / EvalReport
@@ -34,6 +34,24 @@ Add a free Groq API key to `.env` (get one at https://console.groq.com/keys):
 ```
 GROQ_API_KEY=your-key-here
 ```
+
+### Other LLM providers
+
+Groq is the default. To use another, install its extra, add its key to `.env`, and
+pick it with `AGENTEVAL_PROVIDER=<name>`, `--provider <name>` on the CLI, or
+`create_llm_node(provider="<name>")` / `create_judge("<name>")` in code.
+
+| Provider | Install | Key | Default agent / judge model |
+|---|---|---|---|
+| `groq` (default) | included | `GROQ_API_KEY` | `openai/gpt-oss-120b` / `qwen/qwen3.8-27b` |
+| `openai` | `pip install -e ".[openai]"` | `OPENAI_API_KEY` | `gpt-4o-mini` / `gpt-4o` |
+| `anthropic` | `pip install -e ".[anthropic]"` | `ANTHROPIC_API_KEY` | `claude-haiku-5-5` / `claude-sonnet-5-5` |
+| `ollama` | `pip install -e ".[ollama]"` | none (local server) | `llama3.1` / `qwen2.5` |
+
+Override models with `--model` / `--judge-model` (the judge can use a different
+provider via `--judge-provider`). Only Groq has been run live; the others are
+covered by mocked tests. Tool-calling quality varies, especially for small local
+models. Defaults live in `agent/providers.py`.
 
 ## Run
 
