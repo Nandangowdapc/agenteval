@@ -4,6 +4,27 @@ Running log for continuity across sessions. Newest entries at the top. See `CLAU
 
 ---
 
+## 2026-10-24 (later) — judge calibration, API judge_samples, CI
+
+**Calibration:** new `src/agenteval/eval/calibration.py` with `examples/judge_calibration.json` (14 seed items) and a CLI. Live Groq run: MAE 0.10, bias -0.07, 86% agreement, Pearson r 0.88; the judge is strict on approximate answers. Caveat: the labels were written by the assistant, not independent humans, so this is a harness/smoke test rather than a true calibration.
+
+**API:** `POST /evaluate` now accepts `judge_samples` (1-5); `JudgeFactory` is now temperature -> Judge (`src/agenteval/api/app.py`, `src/agenteval/api/models.py`, `tests/test_api.py`). New `tests/test_calibration.py`.
+
+**CI:** added `.github/workflows/ci.yml` (black, ruff, pytest; no keys needed). Not yet run on GitHub.
+
+**Docs:** `CLAUDE.md` items 5/6 line-join fixed; README updated. **124 tests pass.** Uncommitted.
+
+**Problems hit:** None.
+
+**Not done / next steps:**
+1. Human-labelled calibration set by an independent person, then re-run.
+2. Live-test a non-Groq provider and verify its default model IDs (needs a key).
+3. Decide whether to remove unused `sqlalchemy`.
+4. Push to GitHub and confirm CI passes.
+5. Optional: evaluate the user's own agent via CLI/API.
+
+---
+
 ## 2026-10-24 — multi-provider LLM support
 
 **Providers:** new `src/agenteval/agent/providers.py` registry (Groq default; OpenAI, Anthropic, Ollama as optional extras). `create_llm_node(provider=)` in `src/agenteval/agent/llm.py` and `create_judge()` in `src/agenteval/eval/judge.py` use it. Suite CLI (`src/agenteval/eval/suite.py`) gained `--provider`, `--model`, `--judge-provider`, `--judge-model`. README has a providers table; `pyproject.toml` and `.env.example` updated. New `tests/test_providers.py`. **107 tests pass.** Uncommitted.

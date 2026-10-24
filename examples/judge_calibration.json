@@ -1,0 +1,16 @@
+[
+  {"task": "What is 12 * 12?", "output": "12 * 12 = 144.", "criteria": "The answer is correct and states the result.", "human_score": 10},
+  {"task": "What is 12 * 12?", "output": "It is 124.", "criteria": "The answer is correct and states the result.", "human_score": 0},
+  {"task": "What is 12 * 12?", "output": "That is around 140, give or take.", "criteria": "The answer is correct and states the result.", "human_score": 3},
+  {"task": "What is 15% of 200?", "output": "15% of 200 is 30.", "criteria": "The answer is correct.", "human_score": 10},
+  {"task": "What is 15% of 200?", "output": "15% of 200 is 3.", "criteria": "The answer is correct.", "human_score": 0},
+  {"task": "Name the capital of France.", "output": "The capital of France is Paris.", "criteria": "Names the correct capital city.", "human_score": 10},
+  {"task": "Name the capital of France.", "output": "France is a country in Western Europe known for its cuisine and art.", "criteria": "Names the correct capital city.", "human_score": 1},
+  {"task": "Name the capital of France.", "output": "Lyon.", "criteria": "Names the correct capital city.", "human_score": 0},
+  {"task": "Explain what a tool call is in one sentence.", "output": "A tool call is when an AI model asks the surrounding program to run a function and return the result.", "criteria": "A correct, one-sentence explanation.", "human_score": 9},
+  {"task": "Explain what a tool call is in one sentence.", "output": "A tool call is when a model asks the program to run a function. The result then goes back to the model. This lets it do things like arithmetic and search that it cannot do reliably alone.", "criteria": "A correct, one-sentence explanation.", "human_score": 5},
+  {"task": "Explain what a tool call is in one sentence.", "output": "A tool call is a phone call made by a technician.", "criteria": "A correct, one-sentence explanation.", "human_score": 0},
+  {"task": "Convert 100 cm to metres.", "output": "100 cm is 1 metre.", "criteria": "The conversion is correct.", "human_score": 10},
+  {"task": "Convert 100 cm to metres.", "output": "100 cm is 10 metres.", "criteria": "The conversion is correct.", "human_score": 0},
+  {"task": "Convert 100 cm to metres.", "output": "It is about one metre, roughly.", "criteria": "The conversion is correct.", "human_score": 8}
+]

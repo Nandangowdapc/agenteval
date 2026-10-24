@@ -16,7 +16,7 @@ Python 3.11, LangGraph (StateGraph), LangChain + `langchain-groq` (Groq-hosted L
 - **`Evaluator` takes an already-wired `AgentGraph`**, not a factory — `AgentGraph.run()` already builds fresh initial state per call, so one graph instance can score many `EvalCase`s. Revisit this (e.g. add a factory variant) only if a node ever needs case-specific construction.
 - **LLM-as-judge is opt-in and injectable** (`eval/judge.py`): a judge is any `str -> str` callable; `llm_judge(task, output, criteria, judge)` asks for a 0–10 rating, normalises to 0–1, and scores unparseable replies 0.0 (never raises). `Evaluator(graph, judge=None)` records `llm_judge` only when a judge AND `EvalCase.judge_criteria` are both set. `create_groq_judge()` is the real one (temperature 0). Lives outside `metrics.py` because it needs a callable, not primitives. The API injects it via the `get_judge_factory` dependency (overridden in tests; built only when a case has `judge_criteria`, else 503 without `GROQ_API_KEY`).
 - **Tool-use system prompt**: `create_llm_node(..., system_prompt=None)` prepends `TOOL_SYSTEM_PROMPT` as a system message when tools are bound (fixed the model skipping `calculate`; `tool_call_accuracy` 0.33 -> 1.0 live).
-- **Judge-bias mitigations**: rubric in the judge prompt; `llm_judge(samples=N)` takes the median; `Evaluator(judge_samples=N)`; CLI `--judge-samples N` (N>1 -> temperature 0.7, else 0.0). The API does not expose `judge_samples`.
+- **Judge-bias mitigations**: rubric in the judge prompt; `llm_judge(samples=N)` takes the median; `Evaluator(judge_samples=N)`; CLI `--judge-samples N` (N>1 -> temperature 0.7, else 0.0). `POST /evaluate` takes `judge_samples` (1-5, request level); `JudgeFactory` is now `temperature -> Judge` (0.7 when samples>1).
 - **API LLM node is injected** via the `get_llm_node_factory` FastAPI dependency (`api/app.py`); tests override it with a mock. `POST /evaluate` returns 503 without `GROQ_API_KEY`; `EvalCaseIn.judge_criteria` is accepted.
 - **Suites are JSON/YAML** loaded by `load_suite` (`eval/suite.py`, raises `SuiteError`); CLI: `PYTHONPATH=src python -m agenteval.eval.suite <path> [--node mock|groq]`.
 - **Eval tests run against a mock LLM node**, not the real Groq one, so `pytest` never needs a live API key. The real Groq node is exercised only through the examples, and only when `GROQ_API_KEY` is set.
@@ -35,12 +35,14 @@ src/agenteval/
     judge.py      llm_judge, parse_score, create_judge, create_groq_judge
     metrics.py    exact_match, contains_match, tool_call_accuracy, step_efficiency, success_rate, latency_score, token_efficiency
     evaluator.py  EvalCase, EvalResult, EvalReport, Evaluator (times runs)
+    calibration.py load_calibration, calibrate, CalibrationReport, CLI (judge vs human labels)
     suite.py      load_suite (JSON/YAML), SuiteError, CLI (--node, --judge)
   api/
     app.py      FastAPI app: /health, /tools, /evaluate
     models.py   request/response pydantic models
-tests/        pytest suite (test_agent.py, test_eval.py, test_loop.py, test_api.py, test_suite.py)
-examples/     01_simple_agent.py (needs GROQ_API_KEY; also runs the tool loop), 02_evaluate_agent.py (mock node, no key needed), suite_arithmetic.json
+tests/        pytest suite (test_agent.py, test_eval.py, test_loop.py, test_api.py, test_suite.py, test_providers.py, test_calibration.py)
+.github/workflows/ci.yml  black + ruff + pytest on push/PR, no keys (untested until first push)
+examples/     judge_calibration.json (14 seed items, author-written labels), 01_simple_agent.py (needs GROQ_API_KEY; also runs the tool loop), 02_evaluate_agent.py (mock node, no key needed), suite_arithmetic.json
 ```
 
 ## Roadmap / status
@@ -48,13 +50,17 @@ examples/     01_simple_agent.py (needs GROQ_API_KEY; also runs the tool loop), 
 2. **Evaluation layer (complete, 2026-10-02)** — metrics + `Evaluator`/`EvalReport`, tests, example, README section.
 3. **Multi-step tool-calling agent (complete, 2026-10-06)** — `agent/loop.py`, tool-binding in `llm.py`, safe `calculate`, `tests/test_loop.py` (47 tests total), example 01 extended. Run live 2026-10-22 (tool loop OK).
 4. **API, suites/CLI, latency metric (complete, 2026-10-14)** — `api/` (6 tests, smoke-tested live with uvicorn 2026-10-17 (no key: /tools ok, /evaluate 503)), `eval/suite.py` + CLI + `examples/suite_arithmetic.json`, `latency_score`/`token_efficiency`, Evaluator timing. Token tracking added later the same day (`token_usage`, `max_tokens`, `tokens_used`). 83 tests total.
-5. **LLM-as-judge (complete, 2026-10-17, uncommitted)** — `eval/judge.py`, `Evaluator(judge=)`, `EvalCase.judge_criteria`, suite field + `--judge groq` CLI flag, API `judge_criteria` + `get_judge_factory`, README. 92 tests total. Run live against Groq 2026-10-22 (agent `openai/gpt-oss-120b`, judge `qwen/qwen3.8-27b`): replies parsed, scores sensible.6. **Live Groq verification (complete, 2026-10-22, committed e256f6f)** — key in gitignored `.env`; llama-3.3-70b-versatile was retired (404), defaults now agent `openai/gpt-oss-120b`, judge `qwen/qwen3.8-27b`. Verified live: example 01 tool loop, suite CLI `--node groq --judge groq` (overall 0.66; model skipped `calculate` on 2+2), judge on 2 cases. 92 tests.
+5. **LLM-as-judge (complete, 2026-10-17, uncommitted)** — `eval/judge.py`, `Evaluator(judge=)`, `EvalCase.judge_criteria`, suite field + `--judge groq` CLI flag, API `judge_criteria` + `get_judge_factory`, README. 92 tests total. Run live against Groq 2026-10-22 (agent `openai/gpt-oss-120b`, judge `qwen/qwen3.8-27b`): replies parsed, scores sensible.
+6. **Live Groq verification (complete, 2026-10-22, committed e256f6f)** — key in gitignored `.env`; llama-3.3-70b-versatile was retired (404), defaults now agent `openai/gpt-oss-120b`, judge `qwen/qwen3.8-27b`. Verified live: example 01 tool loop, suite CLI `--node groq --judge groq` (overall 0.66; model skipped `calculate` on 2+2), judge on 2 cases. 92 tests.
 7. **Tool-use prompting, judge-bias mitigations, live `/evaluate` (complete, 2026-10-22)** — see Core decisions. `/evaluate` verified via uvicorn (12*12 case, overall 0.81, 532 tokens, `llm_judge` 1.0); 3-sample judge run OK. 95 tests total.
 8. **Multi-provider LLM support (complete, 2026-10-24, uncommitted)** — `agent/providers.py` registry (groq default; openai, anthropic, ollama as optional extras), `create_llm_node(provider=)`, `create_judge()`, CLI `--provider/--model/--judge-provider/--judge-model`, README providers table. 107 tests. Groq re-verified live; other providers mock-tested only (default model IDs unverified). Decision: stay a library, no public website (shared-key quota/abuse, upkeep).
-9. **Not started:**
-   - Judge calibration set (judge scores vs human labels).
-   - Expose `judge_samples` in the API.
-   - Live-test a non-Groq provider and verify its default model IDs.
+9. **Judge calibration, API judge_samples, CI (complete, 2026-10-24, uncommitted)** — `eval/calibration.py` + `examples/judge_calibration.json` (14 seed items) + CLI. Live Groq run: MAE 0.10, bias -0.07, 86% agreement, r 0.88; judge is strict on approximate answers. Labels were written by the assistant, not independent humans, so this is a harness/smoke test, not a real calibration. `POST /evaluate` now takes `judge_samples` (1-5); `JudgeFactory` is now temperature -> Judge. `.github/workflows/ci.yml` (black, ruff, pytest, no keys; not yet run on GitHub). 124 tests.
+10. **Not started:**
+   - Human-labelled calibration set by an independent person, then re-run.
+   - Live-test a non-Groq provider and verify its default model IDs (needs a key).
+   - Decide whether to remove unused `sqlalchemy` from `requirements.txt`.
+   - Push to GitHub and confirm CI passes.
+   - Optional: evaluate the user's own agent via CLI/API.
 
 ## Documentation duty
 - `LEARN.md` is the long-form manual (problem, solution, method, rationale for every file/decision, from day one). After each user query that changes code, makes a decision, or answers a why/how question, run the `teacher` subagent (`.claude/agents/teacher.md`) with a summary of the query and outcome so it updates `LEARN.md`. `LEARN.md` is written in a story format (chapters, cast analogies) with all technical detail kept. `session-logger` still owns `PROJECT_LOG.md` and this file's roadmap.

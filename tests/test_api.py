@@ -128,7 +128,7 @@ def test_evaluate_rejects_bad_max_tokens(client):
 
 def test_evaluate_with_judge(client):
     use_script([("4", [])])
-    app.dependency_overrides[get_judge_factory] = lambda: lambda: (lambda _: "8")
+    app.dependency_overrides[get_judge_factory] = lambda: lambda _t: (lambda _: "8")
     r = client.post(
         "/evaluate",
         json={"cases": [{"task": "2+2?", "judge_criteria": "answer is 4"}]},
@@ -147,6 +147,49 @@ def test_judge_not_built_without_criteria(client):
     r = client.post("/evaluate", json={"cases": [{"task": "2+2?"}]})
     assert r.status_code == 200
     assert "llm_judge" not in r.json()["results"][0]["scores"]
+
+
+def test_judge_samples_takes_median_and_raises_temperature(client):
+    use_script([("4", [])])
+    replies = iter(["2", "9", "8"])
+    temps = []
+
+    def factory(temperature):
+        temps.append(temperature)
+        return lambda _: next(replies)
+
+    app.dependency_overrides[get_judge_factory] = lambda: factory
+    r = client.post(
+        "/evaluate",
+        json={
+            "cases": [{"task": "2+2?", "judge_criteria": "answer is 4"}],
+            "judge_samples": 3,
+        },
+    )
+    assert r.status_code == 200
+    assert r.json()["results"][0]["scores"]["llm_judge"] == 0.8
+    assert temps == [0.7]
+
+
+def test_judge_samples_default_is_deterministic(client):
+    use_script([("4", [])])
+    temps = []
+
+    def factory(temperature):
+        temps.append(temperature)
+        return lambda _: "8"
+
+    app.dependency_overrides[get_judge_factory] = lambda: factory
+    client.post(
+        "/evaluate",
+        json={"cases": [{"task": "x", "judge_criteria": "ok"}]},
+    )
+    assert temps == [0.0]
+
+
+def test_judge_samples_out_of_range_rejected(client):
+    r = client.post("/evaluate", json={"cases": [{"task": "a"}], "judge_samples": 6})
+    assert r.status_code == 422
 
 
 def test_judge_criteria_without_key_returns_503(client, monkeypatch):

@@ -24,6 +24,7 @@
 - [Chapter 6 — First day with the real brain (2026-10-22)](#chapter-6--first-day-with-the-real-brain-2026-10-22)
 - [Chapter 7 — Teaching the employee to use the toolbox, and a fairer second opinion (2026-10-22)](#chapter-7--teaching-the-employee-to-use-the-toolbox-and-a-fairer-second-opinion-2026-10-22)
 - [Chapter 8 — Who rents the brain? Staying a library, and swappable providers (2026-10-24)](#chapter-8--who-rents-the-brain-staying-a-library-and-swappable-providers-2026-10-24)
+- [Chapter 9 — Clearing the task list: judge samples in the API, a calibration harness, and automatic checks (2026-10-24)](#chapter-9--clearing-the-task-list-judge-samples-in-the-api-a-calibration-harness-and-automatic-checks-2026-10-24)
 - [Where everything lives (file-by-file)](#where-everything-lives-file-by-file)
 - [How we test](#how-we-test)
 - [Decision log](#decision-log)
@@ -665,6 +666,72 @@ The brain is now swappable, but only Groq has ever really been run. Next: verify
 
 ---
 
+## Chapter 9 — Clearing the task list: judge samples in the API, a calibration harness, and automatic checks (2026-10-24)
+
+The same day as Chapter 8, after commit `feb181d`, the author said: "do everything possible for now sequentially" on the remaining list. Four small jobs followed, in order. None is committed yet.
+
+### The trouble
+- Chapter 7 gave the second examiner (the judge) the ability to answer several times and take the middle score (`judge_samples`), but only the command line could use it. The front desk (the API) could not.
+- We had never checked whether the judge's marks match what a person would give. Without that, "judge score 0.8" has no known meaning.
+- Nothing checked the code automatically. Every quality check (formatting, lint, tests) ran only when someone remembered to.
+- A tiny formatting slip in `CLAUDE.md`: roadmap items 5 and 6 had been run together on one line.
+
+### The idea
+1. **Fix the formatting** in `CLAUDE.md` (trivial).
+2. **Let the API ask for judge samples**, with limits so a caller cannot request 500 judge calls.
+3. **Build a calibration harness**: a small tool that feeds the judge examples with known human marks and measures how close it gets. Calibration here means "checking a measuring instrument against a known reference", like weighing a 1 kg weight on a new kitchen scale.
+4. **Add CI** (continuous integration: a robot that re-runs the checks on every push), using no API keys at all.
+
+### How it was built
+
+#### Thread A: `judge_samples` in the API
+- `api/models.py`: `EvaluateRequest.judge_samples: int = Field(default=1, ge=1, le=5)`. Outside 1 to 5, FastAPI answers **422** (unprocessable request) before our code runs.
+- `api/app.py`: the type `JudgeFactory` changed from `() -> Judge` to `temperature -> Judge`. In `evaluate()`:
+```python
+judge = None
+if any(c.judge_criteria for c in request.cases):
+    judge = judge_factory(0.7 if request.judge_samples > 1 else 0.0)
+report = Evaluator(graph, judge=judge, judge_samples=request.judge_samples).evaluate(...)
+```
+- **Why the factory needed a temperature.** Chapter 7's lesson: asking a temperature-0 judge five times just repeats one answer, so the median of five identical numbers is pointless. The API must therefore *build* the judge hotter (0.7) when more than one sample is wanted. The default factory `groq_judge_factory(temperature=0.0)` passes it on to `create_judge(temperature=...)`. The judge is still only built when some case has `judge_criteria`, and a missing key still becomes 503.
+- Trade-off: changing the factory's signature broke the one existing test override (`lambda: lambda: judge` became `lambda: lambda _t: judge`). We accepted that small break because the alternative (leaving temperature fixed) would make the new field useless.
+- Tests (3 new in `tests/test_api.py`): replies `"2","9","8"` with `judge_samples=3` give median 0.8 and the factory is called once with 0.7; default requests call the factory with 0.0; `judge_samples=6` gives 422.
+
+#### Thread B: `eval/calibration.py` (new)
+Think of it as a trial exam for the examiner: we hand the judge answers whose "true" marks a person already wrote down, then see how far off it is.
+
+- **Input file** (`examples/judge_calibration.json`, 14 seed items): a JSON list of `{task, output, criteria, human_score}` with `human_score` on the judge's own 0 to 10 scale.
+- `load_calibration(path)` validates strictly and raises `CalibrationError` (a `ValueError`) for: unreadable or invalid JSON, not a list, fewer than 2 items (correlation needs at least two points), a non-object item, an empty `task`/`output`/`criteria`, a `human_score` that is a bool (Python counts `True` as a number, so it is rejected explicitly), not a number, or outside 0 to 10. Scores are divided by 10 into a `CalibrationItem`.
+- `calibrate(items, judge, samples=1)` runs the existing `llm_judge(...)` per item and returns a `CalibrationReport`.
+- `CalibrationReport` properties, all on the 0 to 1 scale:
+  - `mean_abs_error`: average distance between judge and human (lower is better).
+  - `bias`: average of (judge minus human). Positive means the judge is lenient, negative means strict.
+  - `agreement`: share of items where the judge is within `AGREEMENT_TOLERANCE = 0.2` (two points on the 10-point scale) of the human; a `1e-9` slack avoids floating-point surprises at exactly 0.2.
+  - `correlation`: Pearson r (do the two rise and fall together?) via `statistics.correlation`; returns `None` if either list is constant, since r is undefined then.
+- `format_report` prints one line per item plus the summary. CLI:
+```bash
+PYTHONPATH=src python -m agenteval.eval.calibration examples/judge_calibration.json \
+  [--judge-provider groq] [--judge-model M] [--judge-samples N]
+```
+  Exit code 2 with a message on a bad file. As elsewhere, N>1 samples builds the judge at temperature 0.7, else 0.0. It reuses `PROVIDERS` and `create_judge` from Chapter 8, so any provider works.
+- Tests: `tests/test_calibration.py`, 14 tests (verified by running it).
+
+#### Thread C: `.github/workflows/ci.yml` (new)
+On push to `main` and on pull requests: Python 3.11 on `ubuntu-latest`, `pip install -r requirements.txt pyyaml httpx`, then `black --check src tests`, `ruff check src tests`, `pytest -q`. **No API keys are set**, on purpose: this is Chapter 2's rule (tests never need a key) turned into an enforced check. `pyyaml` and `httpx` are installed explicitly (suite YAML loading and FastAPI's test client) in case the requirements file does not pull them in.
+
+### Did it work?
+- **Tests:** 124 pass (verified now with `venv/Scripts/python -m pytest -q`; was 107): +3 in `test_api.py`, +14 in `test_calibration.py`. Black and ruff clean (per the caller).
+- **Live calibration run (per the caller, default Groq judge `qwen/qwen3.8-27b`, 14 items):** mean absolute error **0.100**, bias **-0.071**, agreement **86%**, correlation **0.884**. So the judge tracks the labels well and runs slightly strict. The two telling misses: it gave **0** to approximate-but-reasonable answers, for instance "around 140" (human 3) and "about one metre" (human 8). The judge punishes approximation more than the author did.
+- **The important caveat, stated plainly:** the human labels were written by the **AI assistant that is the author of this code, not by an independent panel of people**. So this is a working harness plus a smoke test, **not a real calibration**. An r of 0.884 shows the judge agrees with *those labels*, which may carry the same blind spots as the assistant. A genuine calibration needs labels from several independent people. This is the same family of self-agreement risk as Chapter 5's self-preference bias.
+- **Not verified:** the CI workflow has **never run on GitHub**; nothing was pushed (pushing was not authorised). It mirrors commands that pass locally, but a first real run could still fail, for example on a missing package.
+- **Not done:** `sqlalchemy` is still pinned in `requirements.txt` but unused; removing it needs the user's decision. No live test of any non-Groq provider (needs the user's own key).
+- **A small slip, recorded for honesty:** the first attempt to create several files with one shell command failed to parse and wrote nothing; the files were then re-created with the Write tool. No wrong content reached the repo.
+
+### Cliffhanger
+The harness exists but its reference answers are only one author's opinion. Real next steps: independent human labels, an actual first CI run after a push, a decision on `sqlalchemy`, and the live check of the other providers. See [Next steps](#next-steps).
+
+---
+
 ## Where everything lives (file-by-file)
 
 ### Root
@@ -677,6 +744,7 @@ The brain is now swappable, but only Groq has ever really been run. Next: verify
 | `pyproject.toml` | Package metadata; black/ruff config; N999 ignore for examples; optional extras `openai`, `anthropic`, `ollama` (Chapter 8). |
 | `requirements.txt` | Dependencies (minimum versions). |
 | `.env.example` | Committed template: variable names only, never real values. Real `.env` is git-ignored (see Chapter 6). |
+| `.github/workflows/ci.yml` | CI: black --check, ruff, pytest on push to main and PRs; no keys; not yet run on GitHub (Chapter 9). |
 | `.gitignore` | Excludes venv, caches, `.env`, `results/`, `*.db`, IDE folders. |
 
 ### `src/agenteval/`
@@ -693,11 +761,12 @@ The brain is now swappable, but only Groq has ever really been run. Next: verify
 | `eval/evaluator.py` | `EvalCase`, `EvalResult`, `EvalReport`, `Evaluator(graph, judge, judge_samples)`. | 2 (extended 4, 5, 7) |
 | `eval/judge.py` | `Judge`, `parse_score`, `llm_judge(..., samples)`, `create_judge(provider, model, temperature)`, `create_groq_judge` (wrapper); rubric prompt. | 5 (+model in 6, +rubric, sampling in 7, +create_judge in 8) |
 | `eval/suite.py` | `load_suite`, `SuiteError`, `build_graph`, `format_report`, CLI `main` (`--node`, `--provider`, `--model`, `--judge`, `--judge-provider`, `--judge-model`, `--judge-samples`). | 4 (+judge 5, +samples 7, +providers 8) |
-| `api/app.py` | FastAPI app, DI factories (RuntimeError -> 503), three routes. | 4 (+judge 5, +providers 8) |
-| `api/models.py` | Pydantic request/response models. | 4 |
+| `eval/calibration.py` | `load_calibration`, `CalibrationError`, `calibrate`, `CalibrationReport` (MAE, bias, agreement, correlation), `format_report`, CLI. | 9 |
+| `api/app.py` | FastAPI app, DI factories (RuntimeError -> 503), three routes; `JudgeFactory` is `temperature -> Judge`. | 4 (+judge 5, +providers 8, +temperature 9) |
+| `api/models.py` | Pydantic request/response models; `EvaluateRequest.judge_samples` (1-5). | 4 (+9) |
 
 ### `tests/`, `examples/`
-See [How we test](#how-we-test). `examples/`: `01_simple_agent.py` (live, needs key; also runs the tool loop), `02_evaluate_agent.py` (mock, no key), `suite_arithmetic.json` (sample suite).
+See [How we test](#how-we-test). `examples/`: `01_simple_agent.py` (live, needs key; also runs the tool loop), `02_evaluate_agent.py` (mock, no key), `suite_arithmetic.json` (sample suite), `judge_calibration.json` (14 seed items with human scores, written by the AI author; Chapter 9).
 
 ### `.claude/agents/`
 `quality-check.md`, `metric-builder.md`, `tool-builder.md`, `session-logger.md`, **`teacher.md`** (this story's maintainer).
@@ -721,7 +790,7 @@ How each layer achieves that:
 | Judge | Fake judge callables returning fixed strings (`"8"`, `"garbage"`); an iterator of replies (`"2","9","8"`) to test the median; a recording lambda to assert the prompt contains the rubric and that `judge_samples` triggers N calls. |
 | Suites | Temp files via pytest fixtures, valid and invalid. |
 
-**Test-count progression:** 6 (Chapter 1) → 13 (Chapter 2) → 47 (Chapter 3) → 72 → 83 (Chapter 4) → 92 (Chapter 5) → 95 (Chapter 7; the final +3 are the judge rubric/median/`judge_samples` tests, 2026-10-22; 92 was unchanged by the Chapter 6 model change) → 107 (Chapter 8; +12 collected from `tests/test_providers.py` (11 test functions, one parametrized), 2026-10-24; verified by running pytest). Tests mock the LLM, so a retired model could never fail them, which is also why they could not have caught it. Likewise the tool-use prompt fix could only be *seen* live; the mocked test just asserts the system message is sent.
+**Test-count progression:** 6 (Chapter 1) → 13 (Chapter 2) → 47 (Chapter 3) → 72 → 83 (Chapter 4) → 92 (Chapter 5) → 95 (Chapter 7; the final +3 are the judge rubric/median/`judge_samples` tests, 2026-10-22; 92 was unchanged by the Chapter 6 model change) → 107 (Chapter 8; +12 collected from `tests/test_providers.py` (11 test functions, one parametrized), 2026-10-24; verified by running pytest) → 124 (Chapter 9; +3 in `test_api.py`, +14 in `tests/test_calibration.py`, 2026-10-24; verified by running pytest). CI (Chapter 9) now runs black, ruff and pytest on every push, but has not yet run on GitHub. Tests mock the LLM, so a retired model could never fail them, which is also why they could not have caught it. Likewise the tool-use prompt fix could only be *seen* live; the mocked test just asserts the system message is sent.
 
 **The honest limitation:** green tests prove the *plumbing* is right, not that real Groq behaves. As of 2026-10-22 the agent tool loop, suite CLI, judge (3-sample run) and `/evaluate` have each been run live (per the caller). Never claim more.
 
@@ -766,6 +835,11 @@ One-liners; the reasoning is in the chapters.
 | 29 | Fail fast on missing key (`RuntimeError`) and missing package (`ImportError` with pip hint) | Clear setup hint instead of a deep LangGraph error; API maps `RuntimeError` to 503 | 8 |
 | 30 | Judge default model differs from agent default within every provider | Keep self-preference defence (decision 19) | 8 |
 | 31 | `--node/--judge` accept `llm`; `groq` kept as alias; `create_groq_judge` kept as wrapper | Backwards compatibility | 8 |
+| 32 | `judge_samples` in the API, limited to 1-5 (422 outside) | Parity with CLI; cap bounds cost per request | 9 |
+| 33 | API `JudgeFactory` takes a temperature; 0.7 if samples > 1 else 0.0 | Sampling a temperature-0 judge repeats one answer (decision 25) | 9 |
+| 34 | Calibration harness as a separate module/CLI, requires >= 2 items, rejects bool scores, correlation `None` if constant | Pearson r undefined otherwise; fail loudly on bad data | 9 |
+| 35 | CI runs with no API keys | Enforces decision 17 | 9 |
+| 36 | `sqlalchemy` left pinned though unused | Removal needs the user's decision | 9 |
 
 ---
 
@@ -773,13 +847,14 @@ One-liners; the reasoning is in the chapters.
 
 1. **Live-verified (2026-10-22, per the caller):** tool loop, suite CLI, judge (3 samples) and `/evaluate` ran against Groq, each in small samples. Malformed tool calls remain a possible risk (none seen).
 2. **Hosted model names can be retired** without notice (happened to Llama 3.3); defaults need occasional checking.
-3. **Judge bias/variance** partly mitigated (cross-family judge, rubric, median of N samples), but there is **no calibration set** against human labels, a single judge model, possible criteria/`expected_output` mismatch, and the API does not expose `judge_samples`.
+3. **Judge bias/variance** partly mitigated (cross-family judge, rubric, median of N samples), but the only calibration set (`examples/judge_calibration.json`, 14 items) was **labelled by the AI author, not independent humans**, so it is a smoke test, not a real calibration (live: MAE 0.100, bias -0.071, agreement 86%, r 0.884, per the caller; the judge is strict on approximate answers). Also a single judge model and possible criteria/`expected_output` mismatch. The API now exposes `judge_samples` (1-5).
 4. **`search` is a mock.** `tool_call_accuracy` against it is fine, but answers aren't real.
 5. **No dollar-cost metric**; **no persistence** (SQLAlchemy unused).
 6. **Evaluation is sequential**: one case at a time, no concurrency.
 7. `step_efficiency` can't distinguish a *useful* extra step from a wasted one.
 8. **Prompt changes shift scores:** pre-prompt (0.66) and post-prompt arithmetic results are not comparable.
 9. **Non-Groq providers are untested live** (mock tests only), and their default model IDs (`gpt-4o-mini`/`gpt-4o`, `claude-haiku-5-5`/`claude-sonnet-5-5`, `llama3.1`/`qwen2.5`) were not checked against provider docs. Scores across providers are not comparable.
+10. **CI has never run on GitHub** (`.github/workflows/ci.yml`; nothing pushed).
 
 ---
 
@@ -788,10 +863,11 @@ One-liners; the reasoning is in the chapters.
 Priority order:
 1. Done 2026-10-22: key, example 01, suite `--node groq`, tool-use prompt, rubric + sampling, judge and `/evaluate` live.
 2. Verify the OpenAI/Anthropic/Ollama default model IDs against provider docs and do one live run each (Chapter 8).
-3. Build a small human-labelled **calibration set** for the judge and measure agreement.
-4. Expose `judge_samples` in the API request model.
-5. Optional dollar-cost metric.
-6. Persistence of reports (would finally use SQLAlchemy).
+3. Replace the AI-written calibration labels with independent human labels (harness exists since Chapter 9).
+4. Done 2026-10-24: `judge_samples` exposed in the API.
+5. Push and watch the first real CI run; decide whether to drop the unused `sqlalchemy` pin.
+6. Optional dollar-cost metric.
+7. Persistence of reports (would finally use SQLAlchemy).
 
 ---
 
@@ -799,7 +875,12 @@ Priority order:
 
 > **Maintained by the `teacher` subagent.** After each user query it adds a dated entry here (newest first) summarising *what was asked, what was answered or changed, and why*, then, if the project changed, updates the relevant chapter above so the story stays true. Entries explain concepts in depth; they are not terse log lines. Older entries below refer to the manual's former "Part N" numbering; the mapping is: Part 8B = Chapter 6, Part 8C = Chapter 7, Part 8 = Chapter 5, Parts 9-13 = the reference sections at the end of this file.
 
-### 2026-10-24 (latest) — Library, not website; swappable LLM providers
+### 2026-10-24 (latest) — Task-list batch: API judge samples, calibration harness, CI
+- **Asked:** "do everything possible for now sequentially" on the remaining tasks.
+- **Done:** added Chapter 9. `CLAUDE.md` roadmap formatting fixed; `EvaluateRequest.judge_samples` (1-5, 422 outside) with `JudgeFactory` now `temperature -> Judge` (0.7 if samples > 1); new `eval/calibration.py` + `examples/judge_calibration.json` + `tests/test_calibration.py`; new `.github/workflows/ci.yml`. pytest re-run by me: 124 passed (calibration file alone: 14).
+- **Why:** sampling a temperature-0 judge repeats one answer, so the API must build the judge hotter. Calibration measures judge vs human marks. CI enforces "no keys needed". Live calibration (MAE 0.100, bias -0.071, agreement 86%, r 0.884) is the caller's report. Caveat: labels were written by the AI author, so this is a smoke test, not real calibration. CI not run on GitHub; `sqlalchemy` pin left for the user; non-Groq providers still untested live; no push. Slip: a multi-file shell command failed to parse, wrote nothing, files recreated with Write.
+
+### 2026-10-24 — Library, not website; swappable LLM providers
 - **Asked:** keep AgentEval a Python library (no public website, because of key abuse/quota and upkeep; library users use their own key) and let developers switch LLM APIs while Groq stays the default.
 - **Done:** added Chapter 8. New `agent/providers.py` (`Provider`, `PROVIDERS` for groq/openai/anthropic/ollama, `get_provider`, `create_chat_model`); `create_llm_node(model=None, ..., provider=None)`; `create_judge` (with `create_groq_judge` kept as wrapper); CLI `--provider/--model/--judge-provider/--judge-model` and `llm` as the new name for `groq`; API factories turn `RuntimeError` into 503; extras in `pyproject.toml`; `.env.example` and README updated. pytest re-run by me: 107 passed.
 - **Why:** a public site would burn the author's free-tier key and need hosting; a library pushes cost and key to the user. A registry plus lazy imports gives choice without forcing every provider package on everyone. Not verified: non-Groq providers live and their default model IDs (mock-tested only). Live Groq CLI re-run (overall 0.68) and the clean missing-key hint for `--provider openai` are the caller's report.
@@ -860,5 +941,10 @@ Priority order:
 - **Lazy import** — importing a package only at the moment it is needed, so unused optional packages need not be installed.
 - **Optional extra** — a group of optional dependencies in `pyproject.toml`, installed with `pip install 'agenteval[openai]'`.
 - **Ollama** — software that runs open models on your own machine; needs no API key.
-- **Calibration set** — human-labelled examples used to check that judge scores agree with human judgement (not yet built).
+- **Calibration set** — human-labelled examples used to check that judge scores agree with human judgement. The harness and a 14-item seed set exist (Chapter 9), but the labels are AI-written, not independent.
+- **Mean absolute error (MAE)** — average size of the gap between judge and human scores; lower is better.
+- **Bias (judge minus human)** — average signed gap; negative = strict judge, positive = lenient.
+- **Pearson correlation (r)** — -1 to 1 measure of whether two score lists rise and fall together.
+- **422** — HTTP "Unprocessable": the request body failed validation (e.g. `judge_samples` of 6).
+- **CI (continuous integration)** — a robot that re-runs checks on every push; here `.github/workflows/ci.yml`.
 - **Smoke test** — a single quick real run proving the pieces connect, not proving correctness.

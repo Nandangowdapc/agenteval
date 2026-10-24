@@ -53,6 +53,23 @@ provider via `--judge-provider`). Only Groq has been run live; the others are
 covered by mocked tests. Tool-calling quality varies, especially for small local
 models. Defaults live in `agent/providers.py`.
 
+### Judge calibration
+
+Is the LLM judge trustworthy? `examples/judge_calibration.json` holds answers with
+reference scores; compare the judge against them:
+
+```bash
+PYTHONPATH=src python -m agenteval.eval.calibration examples/judge_calibration.json
+```
+
+It prints per-item scores plus mean absolute error, bias (judge minus reference),
+agreement within 2 points, and Pearson correlation. A live run with the default
+Groq judge on the 14 seed items gave MAE 0.10, bias -0.07, 86% agreement,
+r = 0.88: it matched on clearly right/wrong answers but scored approximate
+answers ("around 140", "about one metre") 0. The seed labels were written by the
+project author, not an independent panel, so replace them with your own before
+relying on the numbers.
+
 ## Run
 
 ```bash
@@ -88,4 +105,4 @@ Built-in metrics (`agenteval.eval.metrics`), each scored 0–1 (higher is better
 - `tool_call_accuracy` — fraction of expected tools actually called
 - `step_efficiency` — rewards reaching an answer in fewer steps
 - `success_rate` — 1.0 if the run recorded no errors
-- `llm_judge` (`agenteval.eval.judge`) — an LLM grades the final answer against free-text `EvalCase.judge_criteria` (0–10, normalised to 0–1). Opt in with `Evaluator(graph, judge=create_groq_judge())`; suite files take `judge_criteria`, the CLI takes `--judge groq`, and `POST /evaluate` accepts `judge_criteria` per case (needs `GROQ_API_KEY`). Without a judge or criteria the score is simply omitted.
+- `llm_judge` (`agenteval.eval.judge`) — an LLM grades the final answer against free-text `EvalCase.judge_criteria` (0–10, normalised to 0–1). Opt in with `Evaluator(graph, judge=create_groq_judge())`; suite files take `judge_criteria`, the CLI takes `--judge groq`, and `POST /evaluate` accepts `judge_criteria` per case and a request-level `judge_samples` (1-5) (needs `GROQ_API_KEY`). Without a judge or criteria the score is simply omitted.

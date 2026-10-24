@@ -15,6 +15,12 @@ class EvalCaseIn(BaseModel):
 class EvaluateRequest(BaseModel):
     cases: list[EvalCaseIn] = Field(min_length=1)
     max_steps: int = Field(default=10, ge=1, le=50, description="Agent loop hard cap")
+    judge_samples: int = Field(
+        default=1,
+        ge=1,
+        le=5,
+        description="Ask the judge N times and take the median (N>1 uses temperature 0.7)",
+    )
 
 
 class CaseResultOut(BaseModel):

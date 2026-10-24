@@ -25,7 +25,7 @@ from .models import (
 
 LLMNode = Callable[[AgentState], dict]
 LLMNodeFactory = Callable[[ToolRegistry], LLMNode]
-JudgeFactory = Callable[[], Judge]
+JudgeFactory = Callable[[float], Judge]  # temperature -> judge
 
 app = FastAPI(title="AgentEval API", version="0.1.0")
 
@@ -46,12 +46,12 @@ def get_llm_node_factory() -> LLMNodeFactory:
     return groq_llm_node_factory
 
 
-def groq_judge_factory() -> Judge:
+def groq_judge_factory(temperature: float = 0.0) -> Judge:
     """Default judge factory: the configured provider's judge; 503 if no key."""
     from ..eval.judge import create_judge
 
     try:
-        return create_judge()
+        return create_judge(temperature=temperature)
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
@@ -84,10 +84,13 @@ def evaluate(
         factory(tool_registry), tool_registry, max_steps=request.max_steps
     )
     # Only build a judge when some case asks for one, so plain runs never need it.
-    judge = judge_factory() if any(c.judge_criteria for c in request.cases) else None
-    report = Evaluator(graph, judge=judge).evaluate(
-        [EvalCase(**case.model_dump()) for case in request.cases]
-    )
+    judge = None
+    if any(c.judge_criteria for c in request.cases):
+        # Sampling a temperature-0 judge N times would just repeat one answer.
+        judge = judge_factory(0.7 if request.judge_samples > 1 else 0.0)
+    report = Evaluator(
+        graph, judge=judge, judge_samples=request.judge_samples
+    ).evaluate([EvalCase(**case.model_dump()) for case in request.cases])
     results = []
     for r in report.results:
         state = r.final_state
